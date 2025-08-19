@@ -58,17 +58,21 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/argocd-helmfile-plugin:latest
             ghcr.io/${{ github.repository_owner }}/argocd-helmfile-plugin:${{ env.IMAGE_TAG }}
 
-      # Log in to Docker Hub (only if credentials are provided)
+      # Log in to DockerHub (only if credentials are provided)
       - name: Log in to DockerHub
-        if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+        if: ${{ env.DOCKER_USERNAME }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Build and push Docker image to both Docker Hub (only if credentials are provided)
+      # Build and push Docker image to both DockerHub (only if credentials are provided)
       - name: Build and push Docker image to Docker Hub
-        if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+        if: ${{ env.DOCKER_USERNAME }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         uses: docker/build-push-action@v5
         with:
           context: .
