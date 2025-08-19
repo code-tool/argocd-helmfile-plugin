@@ -22,7 +22,7 @@ jobs:
       - name: Cancel previous runs
         uses: styfle/cancel-workflow-action@0.12.0
         with:
-          github_token: ${{ github.token }}
+          access_token: ${{ github.token }}
 
       # Checkout the repository
       - uses: actions/checkout@v4
@@ -55,8 +55,8 @@ jobs:
           platforms: linux/amd64,linux/arm64   # multi-arch support
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/argocd-helmfile-plugin:latest
-            ghcr.io/${{ github.repository_owner }}/argocd-helmfile-plugin:${{ env.IMAGE_TAG }}
+            ghcr.io/${{ github.repository_owner | toLower }}/argocd-helmfile-plugin:latest
+            ghcr.io/${{ github.repository_owner | toLower }}/argocd-helmfile-plugin:${{ env.IMAGE_TAG }}
 
       # Log in to DockerHub (only if credentials are provided)
       - name: Log in to DockerHub
