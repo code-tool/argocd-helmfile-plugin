@@ -46,6 +46,7 @@ ARG KUSTOMIZE5_VERSION="5.7.1"
 ARG YQ_VERSION="v4.47.1"
 
 # https://github.com/kubernetes/kubectl/tags
+# Compatible with Kubernetes versions ±1 from its version.
 ARG KUBECTL_VERSION="v1.32.8"
 # https://github.com/kubernetes-sigs/krew/releases/
 ARG KREW_VERSION="v0.4.5"
