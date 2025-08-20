@@ -1,0 +1,33 @@
+# https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
+
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  # The name of the plugin must be unique within a given Argo CD instance.
+  name: helmfile
+spec:
+  # The version of your plugin. Optional. If specified, the Application's spec.source.plugin.name field
+  # must be <plugin name>-<plugin version>.
+  #version: v1.0
+
+  # The init command runs in the Application source directory at the beginning of each manifest generation. The init
+  # command can output anything. A non-zero status code will fail manifest generation.
+  init:
+    command: ["argocd-helmfile-plugin.sh"]
+    args: ["init"]
+  generate:
+    command: ["argocd-helmfile-plugin.sh"]
+    args: ["generate"]
+
+  # The discovery config is applied to a repository. If every configured discovery tool matches, then the plugin may be
+  # used to generate manifests for Applications using the repository. If the discovery config is omitted then the plugin
+  # will not match any application but can still be invoked explicitly by specifying the plugin name in the app spec.
+  # Only one of fileName, find.glob, or find.command should be specified. If multiple are specified then only the
+  # first (in that order) is evaluated.
+  discover:
+    find:
+      command: [argocd-helmfile-plugin.sh, discover]
+  parameters:
+    dynamic:
+      command: [argocd-helmfile-plugin.sh, parameters]
+  preserveFileMode: true
