@@ -31,9 +31,9 @@ RUN groupadd -g $ARGOCD_USER_ID argocd && \
 # Binary versions
 # https://github.com/helm/helm/releases
 # Supported Kubernetes Versions 1.33.x - 1.30.x (https://helm.sh/docs/topics/version_skew/)
-ARG HELM3_VERSION="v3.18.6"
+ARG HELM3_VERSION="v3.19.4"
 # https://github.com/helmfile/helmfile/releases
-ARG HELMFILE_VERSION="1.1.5"
+ARG HELMFILE_VERSION="1.1.9"
 
 # https://github.com/getsops/sops/releases
 ARG SOPS_VERSION="v3.10.2"
@@ -88,7 +88,7 @@ ENV PATH="${KREW_ROOT}/bin:$PATH"
 
 # plugin versions
 # https://github.com/databus23/helm-diff/releases
-ARG HELM_DIFF_VERSION="3.12.5"
+ARG HELM_DIFF_VERSION="3.13.1"
 # https://github.com/aslafy-z/helm-git/releases
 ARG HELM_GIT_VERSION="1.4.0"
 # https://github.com/jkroepke/helm-secrets/releases
