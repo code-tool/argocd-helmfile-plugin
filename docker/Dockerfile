@@ -94,11 +94,13 @@ ARG HELM_GIT_VERSION="1.5.2"
 # https://github.com/jkroepke/helm-secrets/releases
 ARG HELM_SECRETS_VERSION="4.7.6"
 
-# TODO... HELM 4+ WARNING: plugin source does not support verification. Use --verify=false to skip verification
+# TODO... HELM 4+ WARNING: Skipping plugin signature verification. Use --verify=false to skip verification
 RUN \
   helm plugin install https://github.com/databus23/helm-diff   --version ${HELM_DIFF_VERSION} --verify=false && \
   helm plugin install https://github.com/aslafy-z/helm-git     --version ${HELM_GIT_VERSION} --verify=false && \
-  helm plugin install https://github.com/jkroepke/helm-secrets --version ${HELM_SECRETS_VERSION} --verify=false && \
+  helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v${HELM_SECRETS_VERSION}/secrets-${HELM_SECRETS_VERSION}.tgz --verify=false && \
+  helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v${HELM_SECRETS_VERSION}/secrets-getter-${HELM_SECRETS_VERSION}.tgz --verify=false && \
+  helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v${HELM_SECRETS_VERSION}/secrets-post-renderer-${HELM_SECRETS_VERSION}.tgz --verify=false && \
   kubectl krew update && \
   mkdir -p ${KREW_ROOT}/bin && \
   true
