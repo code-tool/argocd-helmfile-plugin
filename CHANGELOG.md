@@ -6,6 +6,10 @@ The format is based on Keep a Changelog (https://keepachangelog.com/en/1.1.0/)
 and this project adheres to Semantic Versioning (https://semver.org/).
 ---
 
+## [1.3.1] - 2026-05-27
+### Fixed 
+ - Fixed plugin installation and compatibility issues for Helm v4, ensuring proper support for CLI plugins including helm-secrets as described in the updated installation guide: https://github.com/jkroepke/helm-secrets/wiki/Installation
+
 ## [1.3.0] - 2026-05-26
 ### Changed
 - Supported Kubernetes Versions 1.35.x - 1.33.x
