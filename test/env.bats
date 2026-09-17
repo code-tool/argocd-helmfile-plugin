@@ -157,3 +157,72 @@ YAML
   plugin_init
   assert [ -s "${BATS_TEST_TMPDIR}/helm-calls.log" ]
 }
+
+@test "env: invalid variable names are ignored with a warning" {
+  write_helmfile helmfile.yaml
+  run --separate-stderr env "ARGOCD_ENV_BAD-NAME=x" "PARAM_1BAD=y" bash "${PLUGIN}" discover
+  assert_success
+  assert_regex "${stderr}" "WARNING: ignoring ARGOCD_ENV_BAD-NAME"
+  assert_regex "${stderr}" "WARNING: ignoring PARAM_1BAD"
+}
+
+@test "env: values with spaces, quotes and newlines are exported unchanged" {
+  cat >helmfile.yaml.gotmpl <<YAML
+releases:
+  - name: probe
+    chart: ${WORK}/chart
+    set:
+      - name: marker
+        value: {{ env "PROBE_MARKER" | b64enc }}
+YAML
+  local value
+  value=$'a b "c" \'d\' $e\nline2'
+  export ARGOCD_ENV_PROBE_MARKER="${value}"
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value marker | base64 -d)" "${value}"
+}
+
+@test "env: env file may reference unset variables" {
+  write_helmfile helmfile.yaml
+  cat >.argo-cd-helmfile-env <<'ENV'
+HELM_TEMPLATE_OPTIONS="--set marker=x${PROBE_UNSET_VARIABLE}y"
+ENV
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value marker)" "xy"
+}
+
+@test "env: works without optional Argo CD variables" {
+  write_helmfile helmfile.yaml
+  unset ARGOCD_APP_NAMESPACE ARGOCD_APP_REVISION ARGOCD_APP_SOURCE_PATH \
+    ARGOCD_APP_SOURCE_REPO_URL ARGOCD_APP_SOURCE_TARGET_REVISION
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value releaseName)" "probe"
+}
+
+@test "env: non-numeric HELMFILE_REPO_CACHE_TIMEOUT disables the cache" {
+  write_helmfile helmfile.yaml
+  export ARGOCD_ENV_HELMFILE_REPO_CACHE_TIMEOUT="5m"
+  plugin_init
+  run_plugin init
+  assert_success
+  refute_regex "${stderr}" "skipping repos update due to cache"
+}
+
+@test "env: missing helm binary fails with a clear message" {
+  write_helmfile helmfile.yaml
+  local helmfile_dir
+  helmfile_dir="$(dirname "$(command -v helmfile)")"
+  export PATH="${helmfile_dir}:/usr/bin:/bin"
+  if command -v helm >/dev/null; then
+    skip "helm is installed in a system path"
+  fi
+  run_plugin init
+  assert_failure
+  assert_regex "${stderr}" "helm not found in PATH"
+}

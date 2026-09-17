@@ -50,59 +50,61 @@
 # KUBE_VERSION="<major>.<minor>[.<patch>]" (may carry a "v" prefix or vendor suffix)
 # KUBE_API_VERSIONS="v1,apps/v1,..."
 
-# error/exit on any failure
-set -e
+# exit on errors, unset variables and failures inside pipelines
+set -Eeuo pipefail
 
 # debugging execution
 #
 # Enable this only if you are debugging an issue.
 # Leaving this on causes excessive space consumption on etcd database.
-if [[ "${DEBUG}" == "1" ]]; then
+if [[ "${DEBUG:-}" == "1" ]]; then
   set -x
 fi
 
 echoerr() { printf "%s\n" "$*" >&2; }
 
+# report where a failure happened, the failing tool prints its own error
+trap 'echoerr "${SCRIPT_NAME:-plugin}: ${phase:-startup} failed (exit $?) at line ${LINENO}"' ERR
+
 # https://unix.stackexchange.com/questions/294835/replace-environment-variables-in-a-file-with-their-actual-values
 variable_expansion() {
   # prefer envsubst if available, fallback to perl
-  if [[ $(which envsubst) ]]; then
-    echo -n "${@}" | envsubst
+  if command -v envsubst >/dev/null; then
+    printf "%s" "$*" | envsubst
   else
-    echo -n "${@}" | perl -pe 's/\$(\{)?([a-zA-Z_]\w*)(?(1)\})/$ENV{$2}/g'
+    printf "%s" "$*" | perl -pe 's/\$(\{)?([a-zA-Z_]\w*)(?(1)\})/$ENV{$2}/g'
   fi
 }
 
-print_env_vars() {
-  while IFS='=' read -r -d '' n v; do
-    printf "'%s'='%s'\n" "$n" "$v"
-  done < <(env -0)
-}
-
-#truthy_test ${FOO:-false} && echo "yes \$FOO"
+# truthy_test "${FOO:-false}" && echo "yes \$FOO"
+# true, 1 and yes (any case) are truthy, everything else is not
 truthy_test() {
-  val="${1}"
-  if [[ $val == true ]]; then
-    return 0
-  fi
+  case "${1,,}" in
+    true | 1 | yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-  if [[ ${val} -eq 1 ]]; then
-    return 0
-  fi
+# split a free-form options string into words (no glob expansion)
+# usage: split_words <array name> <string>
+split_words() {
+  local -n _split_words_out="${1}"
+  read -r -d '' -a _split_words_out <<<"${2}" || true
+}
 
-  if [[ ${val,,} == "1" ]]; then
-    return 0
-  fi
-
-  if [[ ${val,,} == "true" ]]; then
-    return 0
-  fi
-
-  if [[ ${val,,} == "yes" ]]; then
-    return 0
-  fi
-
-  return 1
+# export <prefix>NAME=value as NAME=value
+# https://argo-cd.readthedocs.io/en/latest/operator-manual/upgrading/2.3-2.4/
+export_prefixed_env() {
+  local prefix="${1}" n v name
+  while IFS='=' read -r -d '' n v; do
+    [[ "${n}" == "${prefix}"* ]] || continue
+    name="${n#"${prefix}"}"
+    if [[ ! "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echoerr "WARNING: ignoring ${n}, '${name}' is not a valid variable name"
+      continue
+    fi
+    export "${name}=${v}"
+  done < <(env -0)
 }
 
 # Argo CD passes the cluster version as reported by the API server, which may
@@ -126,165 +128,44 @@ cache_set_time() {
 cache_get_time() {
   local key="${1}"
   if [[ -f "${HOME}/${key}" ]]; then
-    echo $(stat -c %Y "${HOME}/${key}")
+    stat -c %Y "${HOME}/${key}"
   fi
 }
 
 cache_is_valid() {
   local key="${1}"
   local timeout="${2}"
+  local cache_time current_time
 
   if [[ -z "${key}" ]]; then
     return 1
   fi
 
-  if [[ -z ${timeout} || ${timeout} -lt 1 ]]; then
+  if [[ ! "${timeout}" =~ ^[0-9]+$ || "${timeout}" -lt 1 ]]; then
     return 1
   fi
 
-  local cache_time=$(cache_get_time "${key}")
-  if [[ -z $cache_time ]]; then
+  cache_time=$(cache_get_time "${key}")
+  if [[ -z "${cache_time}" ]]; then
     return 1
   fi
 
-  local current_time=$(date +%s)
-  local cache_time_diff=$(($current_time - $cache_time))
-
-  if [[ "${cache_time_diff}" -gt "${timeout}" ]]; then
+  current_time=$(date +%s)
+  if ((current_time - cache_time > timeout)); then
     return 1
   fi
 }
 
 cache_is_expired() {
-  local key="${1}"
-  local timeout="${2}"
-
-  ! cache_is_valid "${key}" "${timeout}"
+  ! cache_is_valid "${1}" "${2}"
 }
-
-# exit immediately if no phase is passed in
-if [[ -z "${1}" ]]; then
-  echoerr "invalid invocation"
-  exit 1
-fi
-
-SCRIPT_NAME=$(basename "${0}")
-
-# export vars unprefixed
-# ARGOCD_ENV_
-# https://argo-cd.readthedocs.io/en/latest/operator-manual/upgrading/2.3-2.4/
-if [[ true ]]; then
-  while IFS='=' read -r -d '' n v; do
-    if [[ "${n}" = ARGOCD_ENV_* ]]; then
-      export ${n##ARGOCD_ENV_}="${v}"
-    fi
-  done < <(env -0)
-fi
-
-# immediately correct PATH if necessary
-export PATH=$(variable_expansion "${PATH}")
-
-# export params unprefixed (prefer these over ENV vars above)
-# PARAM_
-# https://github.com/argoproj/argo-cd/blob/master/docs/proposals/parameterized-config-management-plugins.md#how-will-the-cmp-know-what-parameter-values-are-set
-if [[ true ]]; then
-  while IFS='=' read -r -d '' n v; do
-    if [[ "${n}" = PARAM_* ]]; then
-      export ${n##PARAM_}="${v}"
-    fi
-  done < <(env -0)
-fi
-
-# immediately correct PATH if necessary
-export PATH=$(variable_expansion "${PATH}")
-
-# expand nested variables
-if [[ "${HELMFILE_GLOBAL_OPTIONS}" ]]; then
-  HELMFILE_GLOBAL_OPTIONS=$(variable_expansion "${HELMFILE_GLOBAL_OPTIONS}")
-fi
-
-if [[ "${HELMFILE_TEMPLATE_OPTIONS}" ]]; then
-  HELMFILE_TEMPLATE_OPTIONS=$(variable_expansion "${HELMFILE_TEMPLATE_OPTIONS}")
-fi
-
-if [[ "${HELM_TEMPLATE_OPTIONS}" ]]; then
-  HELM_TEMPLATE_OPTIONS=$(variable_expansion "${HELM_TEMPLATE_OPTIONS}")
-fi
-
-if [[ "${HELMFILE_INIT_SCRIPT_FILE}" ]]; then
-  HELMFILE_INIT_SCRIPT_FILE=$(variable_expansion "${HELMFILE_INIT_SCRIPT_FILE}")
-fi
-
-: "${HELMFILE_ENV_FILE:=".argo-cd-helmfile-env"}"
-if [[ "${HELMFILE_ENV_FILE}" ]]; then
-  HELMFILE_ENV_FILE=$(variable_expansion "${HELMFILE_ENV_FILE}")
-fi
-
-if [[ -f "${HELMFILE_ENV_FILE}" ]]; then
-  echoerr "sourcing env file: ${HELMFILE_ENV_FILE}"
-  source "${HELMFILE_ENV_FILE}"
-fi
-
-if [[ "${HELM_CACHE_HOME}" ]]; then
-  export HELM_CACHE_HOME=$(variable_expansion "${HELM_CACHE_HOME}")
-fi
-
-if [[ "${HELM_CONFIG_HOME}" ]]; then
-  export HELM_CONFIG_HOME=$(variable_expansion "${HELM_CONFIG_HOME}")
-fi
-
-if [[ "${HELM_DATA_HOME}" ]]; then
-  export HELM_DATA_HOME=$(variable_expansion "${HELM_DATA_HOME}")
-fi
-
-# per-application home directory, later used as HOME so apps do NOT share
-# helm repositories, registry logins, caches, etc.
-# HELM_HOME is accepted as a deprecated alias (helm ignores it since v3).
-if [[ -z "${PLUGIN_APP_HOME}" && "${HELM_HOME}" ]]; then
-  echoerr "WARNING: HELM_HOME is deprecated, use PLUGIN_APP_HOME instead"
-  PLUGIN_APP_HOME="${HELM_HOME}"
-fi
-
-if [[ "${PLUGIN_APP_HOME}" ]]; then
-  PLUGIN_APP_HOME=$(variable_expansion "${PLUGIN_APP_HOME}")
-else
-  PLUGIN_APP_HOME="/tmp/__${SCRIPT_NAME}__/apps/${ARGOCD_APP_NAME}"
-fi
-
-# HELM_HOME is kept in sync for init scripts that still reference it
-export PLUGIN_APP_HOME
-export HELM_HOME="${PLUGIN_APP_HOME}"
-
-mkdir -p "${PLUGIN_APP_HOME}"
-
-export HELMFILE_HELMFILE_HELMFILED="${PWD}/.__${SCRIPT_NAME}__helmfile.d"
-
-phase=$1
-
-if [[ ! -d "/tmp/__${SCRIPT_NAME}__/bin" ]]; then
-  mkdir -p "/tmp/__${SCRIPT_NAME}__/bin"
-fi
-
-# set binary paths and base options
-if [[ "${HELM_BINARY}" ]]; then
-  helm="${HELM_BINARY}"
-else
-  helm="$(which helm)"
-fi
-
-if [[ "${HELMFILE_BINARY}" ]]; then
-  helmfile="${HELMFILE_BINARY}"
-else
-  helmfile="$(which helmfile)"
-fi
 
 # detect and validate tool versions, only needed for phases that run them
 check_tool_versions() {
   local helm_version helmfile_version
-
   local helm_major helm_minor helmfile_major helmfile_minor
 
-  if ! helm_version=$(${helm} version --template '{{.Version}}' 2>/dev/null); then
+  if ! helm_version=$("${helm}" version --template '{{.Version}}' 2>/dev/null); then
     echoerr "failed to run '${helm} version', helm >= 3.6 is required"
     exit 1
   fi
@@ -303,7 +184,7 @@ check_tool_versions() {
     exit 1
   fi
 
-  if ! helmfile_version=$(${helmfile} --version 2>/dev/null); then
+  if ! helmfile_version=$("${helmfile}" --version 2>/dev/null); then
     echoerr "failed to run '${helmfile} --version', helmfile >= 1 is required"
     exit 1
   fi
@@ -329,27 +210,104 @@ check_tool_versions() {
   fi
 }
 
+# resolve a binary from an explicit path or PATH
+resolve_binary() {
+  local name="${1}" custom="${2}"
+  if [[ "${custom}" ]]; then
+    echo "${custom}"
+  elif ! command -v "${name}"; then
+    echoerr "${name} not found in PATH"
+    return 1
+  fi
+}
+
+# exit immediately if no phase is passed in
+if [[ -z "${1:-}" ]]; then
+  echoerr "invalid invocation"
+  exit 1
+fi
+
+phase="${1}"
+SCRIPT_NAME=$(basename "${0}")
+
+# export vars unprefixed, params (PARAM_) take precedence over ENV vars (ARGOCD_ENV_)
+# https://github.com/argoproj/argo-cd/blob/master/docs/proposals/parameterized-config-management-plugins.md#how-will-the-cmp-know-what-parameter-values-are-set
+export_prefixed_env "ARGOCD_ENV_"
+export_prefixed_env "PARAM_"
+
+# immediately correct PATH if necessary
+PATH=$(variable_expansion "${PATH}")
+export PATH
+
+# expand nested variables
+for var in HELMFILE_GLOBAL_OPTIONS HELMFILE_TEMPLATE_OPTIONS HELM_TEMPLATE_OPTIONS HELMFILE_INIT_SCRIPT_FILE; do
+  if [[ "${!var:-}" ]]; then
+    printf -v "${var}" "%s" "$(variable_expansion "${!var}")"
+  fi
+done
+
+HELMFILE_ENV_FILE=$(variable_expansion "${HELMFILE_ENV_FILE:-.argo-cd-helmfile-env}")
+if [[ -f "${HELMFILE_ENV_FILE}" ]]; then
+  echoerr "sourcing env file: ${HELMFILE_ENV_FILE}"
+  # env files are user content and may reference unset variables
+  set +u
+  # shellcheck disable=SC1090
+  source "${HELMFILE_ENV_FILE}"
+  set -u
+fi
+
+for var in HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME; do
+  if [[ "${!var:-}" ]]; then
+    export "${var}=$(variable_expansion "${!var}")"
+  fi
+done
+
+# per-application home directory, later used as HOME so apps do NOT share
+# helm repositories, registry logins, caches, etc.
+# HELM_HOME is accepted as a deprecated alias (helm ignores it since v3).
+PLUGIN_APP_HOME="${PLUGIN_APP_HOME:-}"
+if [[ -z "${PLUGIN_APP_HOME}" && "${HELM_HOME:-}" ]]; then
+  echoerr "WARNING: HELM_HOME is deprecated, use PLUGIN_APP_HOME instead"
+  PLUGIN_APP_HOME="${HELM_HOME}"
+fi
+
+if [[ "${PLUGIN_APP_HOME}" ]]; then
+  PLUGIN_APP_HOME=$(variable_expansion "${PLUGIN_APP_HOME}")
+else
+  PLUGIN_APP_HOME="/tmp/__${SCRIPT_NAME}__/apps/${ARGOCD_APP_NAME:-}"
+fi
+
+# HELM_HOME is kept in sync for init scripts that still reference it
+export PLUGIN_APP_HOME
+export HELM_HOME="${PLUGIN_APP_HOME}"
+
+mkdir -p "${PLUGIN_APP_HOME}"
+
+export HELMFILE_HELMFILE_HELMFILED="${PWD}/.__${SCRIPT_NAME}__helmfile.d"
+
+# set binary paths and base options
 case "${phase}" in
   "init" | "generate")
+    helm=$(resolve_binary helm "${HELM_BINARY:-}")
+    helmfile=$(resolve_binary helmfile "${HELMFILE_BINARY:-}")
     check_tool_versions
     ;;
 esac
 
-helmfile="${helmfile} --helm-binary ${helm} --no-color --allow-no-matching-release"
+helmfile_cmd=("${helmfile:-helmfile}" --helm-binary "${helm:-helm}" --no-color --allow-no-matching-release)
 
-if [[ "${ARGOCD_APP_NAMESPACE}" ]]; then
-  truthy_test ${HELMFILE_USE_CONTEXT_NAMESPACE:-false} || {
-    helmfile="${helmfile} --namespace ${ARGOCD_APP_NAMESPACE}"
-  }
+if [[ "${ARGOCD_APP_NAMESPACE:-}" ]] && ! truthy_test "${HELMFILE_USE_CONTEXT_NAMESPACE:-false}"; then
+  helmfile_cmd+=(--namespace "${ARGOCD_APP_NAMESPACE}")
 fi
 
-if [[ "${HELMFILE_GLOBAL_OPTIONS}" ]]; then
-  helmfile="${helmfile} ${HELMFILE_GLOBAL_OPTIONS}"
+if [[ "${HELMFILE_GLOBAL_OPTIONS:-}" ]]; then
+  global_options=()
+  split_words global_options "${HELMFILE_GLOBAL_OPTIONS}"
+  helmfile_cmd+=("${global_options[@]}")
 fi
 
 if [[ -v HELMFILE_HELMFILE ]]; then
-  helmfile="${helmfile} --file ${HELMFILE_HELMFILE_HELMFILED}"
-  HELMFILE_HELMFILE_STRATEGY=${HELMFILE_HELMFILE_STRATEGY:=REPLACE}
+  helmfile_cmd+=(--file "${HELMFILE_HELMFILE_HELMFILED}")
 fi
 
 # TODO: parse helmfile here to detect the operative -f or --file
@@ -359,27 +317,25 @@ export HOME="${PLUGIN_APP_HOME}"
 
 echoerr "starting ${phase}"
 
-case $phase in
+case "${phase}" in
   "init")
-    truthy_test "${HELMFILE_CACHE_CLEANUP:-false}" && {
-      ${helmfile} cache cleanup
-    }
+    if truthy_test "${HELMFILE_CACHE_CLEANUP:-false}"; then
+      "${helmfile_cmd[@]}" cache cleanup
+    fi
 
     if [[ -v HELMFILE_HELMFILE ]]; then
       rm -rf "${HELMFILE_HELMFILE_HELMFILED}"
       mkdir -p "${HELMFILE_HELMFILE_HELMFILED}"
 
-      case "${HELMFILE_HELMFILE_STRATEGY}" in
+      case "${HELMFILE_HELMFILE_STRATEGY:-REPLACE}" in
         "INCLUDE")
-
           count=0
 
-          # NOTE: ((count++)) returns 1 when count is 0 and aborts under set -e
           [[ -f "helmfile.yaml" ]] && count=$((count + 1))
           [[ -f "helmfile.yaml.gotmpl" ]] && count=$((count + 1))
           [[ -d "helmfile.d" ]] && count=$((count + 1))
 
-          if [[ $count -gt 1 ]]; then
+          if [[ "${count}" -gt 1 ]]; then
             echoerr "You can have either helmfile.yaml, helmfile.yaml.gotmpl, or helmfile.d, but not more than one"
           fi
 
@@ -407,20 +363,17 @@ case $phase in
       echo "${HELMFILE_HELMFILE}" >"${HELMFILE_HELMFILE_HELMFILED}/ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ__argocd__helmfile__.yaml"
     fi
 
-    if [ ! -z "${HELMFILE_INIT_SCRIPT_FILE}" ]; then
-      HELMFILE_INIT_SCRIPT_FILE=$(realpath "${HELMFILE_INIT_SCRIPT_FILE}")
-      bash "${HELMFILE_INIT_SCRIPT_FILE}"
+    if [[ "${HELMFILE_INIT_SCRIPT_FILE:-}" ]]; then
+      bash "$(realpath "${HELMFILE_INIT_SCRIPT_FILE}")"
     fi
 
     # using app revision here to ensure if the git repo is updated the cache is busted
-    cache_key="plugin-${phase}-repos-${ARGOCD_APP_REVISION}"
+    cache_key="plugin-${phase}-repos-${ARGOCD_APP_REVISION:-}"
 
-    if cache_is_expired "${cache_key}" "${HELMFILE_REPO_CACHE_TIMEOUT}"; then
+    if cache_is_expired "${cache_key}" "${HELMFILE_REPO_CACHE_TIMEOUT:-}"; then
       # https://github.com/roboll/helmfile/issues/1064
-      ${helmfile} repos
+      "${helmfile_cmd[@]}" repos
       cache_set_time "${cache_key}"
-      # TODO: fetch here?
-      #${helmfile} fetch
     else
       echoerr "skipping repos update due to cache"
     fi
@@ -442,19 +395,19 @@ case $phase in
     helm_template_args=()
 
     # Capabilities.KubeVersion
-    kube_version=$(normalize_kube_version "${KUBE_VERSION}")
+    kube_version=$(normalize_kube_version "${KUBE_VERSION:-}")
     if [[ "${kube_version}" ]]; then
       helmfile_template_args+=(--kube-version "${kube_version}")
-    elif [[ "${KUBE_VERSION}" ]]; then
+    elif [[ "${KUBE_VERSION:-}" ]]; then
       echoerr "WARNING: ignoring invalid KUBE_VERSION '${KUBE_VERSION}'"
     fi
 
     # Capabilities.APIVersions, helm accepts a comma-separated list
-    if [[ "${KUBE_API_VERSIONS}" ]]; then
+    if [[ "${KUBE_API_VERSIONS:-}" ]]; then
       helm_template_args+=("--api-versions=${KUBE_API_VERSIONS}")
     fi
 
-    if [[ "${HELM_TEMPLATE_OPTIONS}" ]]; then
+    if [[ "${HELM_TEMPLATE_OPTIONS:-}" ]]; then
       helm_template_args+=("${HELM_TEMPLATE_OPTIONS}")
     fi
 
@@ -462,35 +415,30 @@ case $phase in
       helmfile_template_args+=(--args "${helm_template_args[*]}")
     fi
 
+    if [[ "${HELMFILE_TEMPLATE_OPTIONS:-}" ]]; then
+      template_options=()
+      split_words template_options "${HELMFILE_TEMPLATE_OPTIONS}"
+      helmfile_template_args+=("${template_options[@]}")
+    fi
+
     # TODO: support post process pipeline here
-    # HELMFILE_TEMPLATE_OPTIONS is intentionally unquoted (multiple options)
-    # shellcheck disable=SC2086
-    ${helmfile} \
-      template \
-      "${helmfile_template_args[@]}" \
-      ${HELMFILE_TEMPLATE_OPTIONS}
+    "${helmfile_cmd[@]}" template "${helmfile_template_args[@]}"
     ;;
 
   "discover")
     # https://github.com/argoproj/argo-cd/issues/4831
     # discovery by default is not executed in the ARGOCD_APP_SOURCE_PATH
-    # discovery broken in 2.7.4
-    if [[ ! -z "${HELMFILE_DISCOVERY_RESPONSE}" ]]; then
-      truthy_test "${HELMFILE_DISCOVERY_RESPONSE}" && {
+    # stdout plus exit code 0 means "use this plugin", diagnostics go to stderr
+    if [[ "${HELMFILE_DISCOVERY_RESPONSE:-}" ]]; then
+      if truthy_test "${HELMFILE_DISCOVERY_RESPONSE}"; then
         echo "forced discovery response: enabled"
         exit 0
-      } || {
-        echo "forced discovery response: disabled"
-        exit 1
-      }
+      fi
+      echoerr "forced discovery response: disabled"
+      exit 1
     fi
 
-    if [[ "${HELMFILE_GLOBAL_OPTIONS}" == *--file* ]]; then
-      echo "custom file path provided, assumed proper"
-      exit 0
-    fi
-
-    if [[ "${HELMFILE_GLOBAL_OPTIONS}" == *-f* ]]; then
+    if [[ "${HELMFILE_GLOBAL_OPTIONS:-}" == *--file* || "${HELMFILE_GLOBAL_OPTIONS:-}" == *-f* ]]; then
       echo "custom file path provided, assumed proper"
       exit 0
     fi
@@ -500,39 +448,17 @@ case $phase in
       exit 0
     fi
 
-    if [[ -f "helmfile.yaml" ]]; then
+    if [[ -f "helmfile.yaml" || -f "helmfile.yaml.gotmpl" || -d "helmfile.d" ]]; then
       echo "valid helmfile content discovered"
       exit 0
     fi
 
-    if [[ -f "helmfile.yaml.gotmpl" ]]; then
-      echo "valid helmfile content discovered"
-      exit 0
-    fi
-
-    if [[ -d "helmfile.d" ]]; then
-      echo "valid helmfile content discovered"
-      exit 0
-    fi
-
-    # provides false positive if --file or -f is omitted
-    #test -n "$(find . -type d -name "helmfile.d")" && {
-    #  echo "valid helmfile content discovered"
-    #  exit 0
-    #}
-
-    # provides false positive if --file or -f is omitted
-    #test -n "$(find . -type f -name "helmfile.yaml")" && {
-    #  echo "valid helmfile content discovered"
-    #  exit 0
-    #}
-
-    echo "no valid helmfile content discovered"
+    echoerr "no valid helmfile content discovered"
     exit 1
     ;;
 
   "parameters")
-    cat <<-"EOF"
+    cat <<"EOF"
 [
   {
     "name": "HELM_TEMPLATE_OPTIONS",
@@ -575,39 +501,6 @@ case $phase in
     "title": "HELMFILE_USE_CONTEXT_NAMESPACE",
     "tooltip": "do not set helmfile namespace to ARGOCD_APP_NAMESPACE (for multi-namespace apps)",
     "itemType": "boolean"
-  }
-]
-EOF
-
-    exit 0
-
-    # not including these are params as they are explicitly used as ENV vars
-    read -r -d '' USE_AS_ENVS_TO_NOT_CONFUSE_PEOPLE <<'EOF'
-[
-  {
-    "name": "HELM_BINARY",
-    "title": "HELM_BINARY",
-    "tooltip": "custom path to helm binary"
-  },
-  {
-    "name": "HELMFILE_BINARY",
-    "title": "HELMFILE_BINARY",
-    "tooltip": "custom path to helmfile binary"
-  },
-  {
-    "name": "HELM_CACHE_HOME",
-    "title": "HELM_CACHE_HOME",
-    "tooltip": "perform variable expansion"
-  },
-  {
-    "name": "HELM_CONFIG_HOME",
-    "title": "HELM_CONFIG_HOME",
-    "tooltip": "perform variable expansion"
-  },
-  {
-    "name": "HELM_DATA_HOME",
-    "title": "HELM_DATA_HOME",
-    "tooltip": "perform variable expansion"
   }
 ]
 EOF

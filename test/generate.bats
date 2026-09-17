@@ -179,3 +179,45 @@ ENV
   assert_success
   assert_equal "$(probe_value marker)" "from-expansion"
 }
+
+@test "generate: options are not glob-expanded" {
+  write_helmfile helmfile.yaml
+  touch "marker=globbed"
+  export ARGOCD_ENV_HELMFILE_TEMPLATE_OPTIONS="--set marker=*"
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value marker)" "*"
+}
+
+@test "generate: multi-line HELMFILE_GLOBAL_OPTIONS are all applied" {
+  cat >helmfile.yaml.gotmpl <<YAML
+environments:
+  default: {}
+  staging: {}
+---
+releases:
+  - name: one
+    chart: ${WORK}/chart
+    set:
+      - name: marker
+        value: env-{{ .Environment.Name }}
+  - name: two
+    chart: ${WORK}/chart
+YAML
+  export ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS=$'--environment staging\n--selector name=one'
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value marker one)" "env-staging"
+  assert_equal "$(probe_value releaseName two)" ""
+}
+
+@test "generate: failures report the phase once" {
+  printf 'releases: [this is: not valid\n' >helmfile.yaml
+  run_plugin generate
+  assert_failure
+  assert_output ""
+  run grep -c "generate failed" <<<"${stderr}"
+  assert_output "1"
+}

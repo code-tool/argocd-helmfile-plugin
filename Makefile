@@ -56,17 +56,18 @@ $(BATS_DIR)/.installed:
 
 tools: $(HELM_DIR)/helm $(HELMFILE_DIR)/helmfile $(BATS_DIR)/.installed
 
-# The plugin is checked at error severity for now; it is raised once the
-# script cleanup lands. For .bats files:
+# For .bats files:
 #   SC2030/SC2031  each @test runs in a subshell by design
 #   SC2016         single-quoted $${VAR} is intentional (tests variable expansion)
 lint:
-	shellcheck --severity=error src/*.sh
+	shellcheck src/*.sh
 	shellcheck test/*.bash test/*.sh
 	shellcheck -s bash -e SC2030,SC2031,SC2016 test/*.bats
-	@# Helm 2 support was removed, make sure it does not come back.
+	@# Removed code must not come back: Helm 2 support and legacy constructs.
 	@if grep -nE 'init --client-only|HELMFILE_HELM3|helm_major_version\} -eq 2' src/*.sh; then \
 	  echo "Helm 2 code found in src/"; exit 1; fi
+	@if grep -nE '\[\[ true \]\]|print_env_vars|\$$\(which |-eq 1 \]\]' src/*.sh; then \
+	  echo "legacy construct found in src/"; exit 1; fi
 
 test: tools
 	@helm version --short

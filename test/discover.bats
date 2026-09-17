@@ -67,10 +67,10 @@ setup() {
 }
 
 @test "discover: diagnostics do not go to stdout on no match" {
-  skip "known issue: 'no valid helmfile content discovered' is printed to stdout (fix planned)"
   run_plugin discover
   assert_failure
   assert_output ""
+  assert_regex "${stderr}" "no valid helmfile content discovered"
 }
 
 # HELMFILE_DISCOVERY_RESPONSE also exercises truthy_test.
@@ -91,6 +91,15 @@ setup() {
     export ARGOCD_ENV_HELMFILE_DISCOVERY_RESPONSE="${v}"
     run_plugin discover
     assert_failure
-    assert_output --partial "disabled"
+    assert_output ""
+    assert_regex "${stderr}" "forced discovery response: disabled"
   done
+}
+
+@test "discover: forced response is not evaluated as arithmetic" {
+  # [[ $val -eq 1 ]] used to evaluate the value, running command substitutions
+  export ARGOCD_ENV_HELMFILE_DISCOVERY_RESPONSE='a[$(touch pwned)]'
+  run_plugin discover
+  assert_failure
+  refute [ -e pwned ]
 }
