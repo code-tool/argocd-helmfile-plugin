@@ -1,0 +1,57 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck
+        # shellcheck is preinstalled on ubuntu-latest runners
+        run: |
+          shellcheck --version
+          make lint
+
+  bats:
+    name: bats (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Versions pinned in docker/Dockerfile (what the image ships).
+          - name: image versions
+            make_args: ""
+          # Helm 3 is still usable via HELM_BINARY until its EOL (2026-11-11).
+          - name: helm v3
+            make_args: HELM_VERSION=v3.19.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache tools
+        uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ matrix.name }}-${{ hashFiles('docker/Dockerfile', 'Makefile') }}
+
+      - name: Show tool versions under test
+        run: make versions ${{ matrix.make_args }}
+
+      - name: Run bats tests
+        run: make test ${{ matrix.make_args }}
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image and run smoke test
+        run: make test-docker

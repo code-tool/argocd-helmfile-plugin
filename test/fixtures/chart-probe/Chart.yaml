@@ -1,0 +1,4 @@
+apiVersion: v2
+name: chart-probe
+description: Local test chart that echoes what the plugin passed to helm. No network access needed.
+version: 0.1.0
