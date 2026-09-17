@@ -179,7 +179,6 @@ SH
 }
 
 @test "init: INCLUDE keeps relative chart paths working" {
-  skip "known bug: files are copied into ${INJECTED_DIR}, relative paths break (fix planned)"
   cat >helmfile.yaml <<'YAML'
 releases:
   - name: probe
@@ -191,6 +190,24 @@ YAML
   run_plugin generate
   assert_success
   assert_equal "$(probe_value releaseName)" "probe"
+}
+
+@test "init: INCLUDE keeps relative values paths working" {
+  skip "known bug: files are copied into ${INJECTED_DIR}, relative values paths break (fix planned)"
+  printf 'marker: from-values-file\n' >values-probe.yaml
+  cat >helmfile.yaml <<YAML
+releases:
+  - name: probe
+    chart: ${WORK}/chart
+    values:
+      - values-probe.yaml
+YAML
+  export ARGOCD_ENV_HELMFILE_HELMFILE="releases: []"
+  export ARGOCD_ENV_HELMFILE_HELMFILE_STRATEGY="INCLUDE"
+  plugin_init
+  run_plugin generate
+  assert_success
+  assert_equal "$(probe_value marker)" "from-values-file"
 }
 
 @test "init: templated HELMFILE_HELMFILE is rendered" {
