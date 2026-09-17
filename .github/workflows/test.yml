@@ -15,10 +15,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Shellcheck
-        # shellcheck is preinstalled on ubuntu-latest runners
-        run: |
-          shellcheck --version
-          make lint
+        # uses the shellcheck version pinned in the Makefile, not the runner's
+        run: make lint
 
   bats:
     name: bats (${{ matrix.name }})

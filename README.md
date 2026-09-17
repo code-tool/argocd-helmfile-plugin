@@ -221,7 +221,8 @@ make lint         # shellcheck
 make test-docker  # builds the image and runs test/docker-smoke.sh inside it
 ```
 
-Requirements: `bash`, `git`, `wget`, `jq`, `make`, `shellcheck` (and `docker` for `test-docker`).
+Requirements: `bash`, `git`, `wget`, `xz`, `jq`, `make` (and `docker` for `test-docker`).
+`make` downloads pinned `shellcheck`, `helm`, `helmfile` and bats into `.tools/`.
 Override tool versions with e.g. `make test HELM_VERSION=v3.19.4`.
 
 Tests for known bugs are marked with `skip "known bug: ..."`. Remove the skip
