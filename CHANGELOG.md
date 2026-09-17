@@ -6,6 +6,29 @@ The format is based on Keep a Changelog (https://keepachangelog.com/en/1.1.0/)
 and this project adheres to Semantic Versioning (https://semver.org/).
 ---
 
+## [Unreleased]
+### Removed
+- Remaining Helm 2 code: `helm init --client-only`, Helm 2 `--kube-version` handling and comments.
+- `HELMFILE_HELM3` export (no-op since helmfile v1).
+
+### Changed
+- Helm version is detected with `helm version --template '{{.Version}}'` instead of parsing `--short` output.
+- `init` and `generate` fail with a clear error for Helm < 3, helmfile < 1 or unparsable versions.
+- `discover` and `parameters` no longer run `helm`/`helmfile`.
+
+### Deprecated
+- `HELM_HOME`: use `PLUGIN_APP_HOME`. `HELM_HOME` is still accepted with a warning and is exported with the same value.
+
+### Fixed
+- `HELMFILE_HELMFILE_STRATEGY=INCLUDE` aborted `init` silently when any helmfile source existed (`((count++))` under `set -e`).
+
+### Added
+- `PLUGIN_APP_HOME` environment variable.
+- bats test suite (`test/`) covering the `discover`, `parameters`, `init` and `generate` phases, environment handling and Kubernetes capabilities.
+- Docker image smoke test (`test/docker-smoke.sh`).
+- `Makefile` with `tools`, `lint`, `test` and `test-docker` targets.
+- GitHub Actions workflow `Test` running shellcheck, bats and the Docker smoke test on pushes to `main` and pull requests.
+
 ## [1.3.1] - 2026-05-27
 ### Fixed 
  - Fixed plugin installation and compatibility issues for Helm v4, ensuring proper support for CLI plugins including helm-secrets as described in the updated installation guide: https://github.com/jkroepke/helm-secrets/wiki/Installation

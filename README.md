@@ -5,7 +5,6 @@
 
 # Intro
 
-
 Support for `helmfile` with `argo-cd`.
 
 `argo-cd` already supports `helm` in 2 distinct ways, why is this useful?
@@ -30,6 +29,14 @@ Consider these implications for your environment and act appropriately.
 - https://github.com/roboll/helmfile#templating (`exec` description)
 - https://github.com/helmfile/helmfile/pull/1 (can disable `exec` using env vars)
 - the execution pod/context is the `argocd-repo-server`
+
+# Requirements
+
+- `helm` >= 3 (Helm 4 recommended; Helm 2 is not supported)
+- `helmfile` >= 1
+
+The plugin checks both versions in the `init` and `generate` phases and fails
+with a clear message if they are not supported.
 
 # Installation
 
@@ -102,6 +109,11 @@ optional):
     `HELMFILE_HELMFILE` should the same release name be declared in multiple
     files
 - `HELMFILE_CACHE_CLEANUP` - run helmfile cache cleanup on init
+- `PLUGIN_APP_HOME` - per-application directory used as `HOME` while running
+  `helm`/`helmfile`, so applications do not share repositories, registry
+  logins or caches. Defaults to `/tmp/__argocd-helmfile-plugin.sh__/apps/${ARGOCD_APP_NAME}`
+- `HELM_HOME` - **deprecated** alias for `PLUGIN_APP_HOME` (Helm itself ignores
+  it since v3). Still accepted with a warning; `PLUGIN_APP_HOME` wins if both are set
 
 Of the above `ENV` variables, the following do variable expansion on the value:
 
@@ -109,6 +121,9 @@ Of the above `ENV` variables, the following do variable expansion on the value:
 - `HELMFILE_TEMPLATE_OPTIONS`
 - `HELM_TEMPLATE_OPTIONS`
 - `HELMFILE_INIT_SCRIPT_FILE`
+- `PLUGIN_APP_HOME` (and deprecated `HELM_HOME`)
+- `HELM_CACHE_HOME`
+- `HELM_CONFIG_HOME`
 - `HELM_DATA_HOME`
 
 Meaning, you can do things like:
@@ -172,6 +187,26 @@ etc. The value can be a relative or absolute path and the file itself can be
 injected using an `initContainers` or stored in the application git repository.
 
 ## Development
+
+### Tests
+
+Tests use [bats-core](https://github.com/bats-core/bats-core) and run the plugin
+against the real `helm` and `helmfile` binaries, using the versions pinned in
+`docker/Dockerfile`. No cluster or network access to chart repositories is needed.
+
+```bash
+make test         # downloads helm, helmfile and bats into .tools/, then runs test/*.bats
+make lint         # shellcheck
+make test-docker  # builds the image and runs test/docker-smoke.sh inside it
+```
+
+Requirements: `bash`, `git`, `wget`, `jq`, `make`, `shellcheck` (and `docker` for `test-docker`).
+Override tool versions with e.g. `make test HELM_VERSION=v3.19.4`.
+
+Tests for known bugs are marked with `skip "known bug: ..."`. Remove the skip
+together with the fix.
+
+### Contributing
 ```declarative
 # Create fork.
 # Add the original repository as a new remote called "upstream" (only once, if not done before)

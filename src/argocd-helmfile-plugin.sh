@@ -14,7 +14,8 @@
 # HELMFILE_REPO_CACHE_TIMEOUT - seconds to cache the repo update process
 # HELMFILE_USE_CONTEXT_NAMESPACE - do not set helmfile namespace to ARGOCD_APP_NAMESPACE (for multi-namespace apps)
 # HELMFILE_DISCOVERY_RESPONSE - truthy value for forced response
-# HELM_HOME - perform variable expansion
+# PLUGIN_APP_HOME - per-application HOME directory, perform variable expansion
+# HELM_HOME - deprecated alias for PLUGIN_APP_HOME
 # HELM_CACHE_HOME - perform variable expansion
 # HELM_CONFIG_HOME - perform variable expansion
 # HELM_DATA_HOME - perform variable expansion
@@ -223,19 +224,25 @@ if [[ "${HELM_DATA_HOME}" ]]; then
   export HELM_DATA_HOME=$(variable_expansion "${HELM_DATA_HOME}")
 fi
 
-# setup the env
-# HELM_HOME is deprecated with helm-v3, uses XDG dirs
-if [[ "${HELM_HOME}" ]]; then
-  export HELM_HOME=$(variable_expansion "${HELM_HOME}")
-else
-  export HELM_HOME="/tmp/__${SCRIPT_NAME}__/apps/${ARGOCD_APP_NAME}"
+# per-application home directory, later used as HOME so apps do NOT share
+# helm repositories, registry logins, caches, etc.
+# HELM_HOME is accepted as a deprecated alias (helm ignores it since v3).
+if [[ -z "${PLUGIN_APP_HOME}" && "${HELM_HOME}" ]]; then
+  echoerr "WARNING: HELM_HOME is deprecated, use PLUGIN_APP_HOME instead"
+  PLUGIN_APP_HOME="${HELM_HOME}"
 fi
 
-# ensure dir(s)
-# rm -rf "${HELM_HOME}"
-if [[ ! -d "${HELM_HOME}" ]]; then
-  mkdir -p "${HELM_HOME}"
+if [[ "${PLUGIN_APP_HOME}" ]]; then
+  PLUGIN_APP_HOME=$(variable_expansion "${PLUGIN_APP_HOME}")
+else
+  PLUGIN_APP_HOME="/tmp/__${SCRIPT_NAME}__/apps/${ARGOCD_APP_NAME}"
 fi
+
+# HELM_HOME is kept in sync for init scripts that still reference it
+export PLUGIN_APP_HOME
+export HELM_HOME="${PLUGIN_APP_HOME}"
+
+mkdir -p "${PLUGIN_APP_HOME}"
 
 export HELMFILE_HELMFILE_HELMFILED="${PWD}/.__${SCRIPT_NAME}__helmfile.d"
 
@@ -258,8 +265,50 @@ else
   helmfile="$(which helmfile)"
 fi
 
-echoerr "helm version $(${helm} version --short)"
-echoerr "$(${helmfile} --version)"
+# detect and validate tool versions, only needed for phases that run them
+check_tool_versions() {
+  local helm_version helmfile_version
+
+  if ! helm_version=$(${helm} version --template '{{.Version}}' 2>/dev/null); then
+    echoerr "failed to run '${helm} version', helm >= 3 is required"
+    exit 1
+  fi
+  echoerr "helm version ${helm_version}"
+
+  if [[ ! "${helm_version}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
+    echoerr "unable to parse helm version '${helm_version}', helm >= 3 is required"
+    exit 1
+  fi
+  helm_major_version="${BASH_REMATCH[1]}"
+  helm_minor_version="${BASH_REMATCH[2]}"
+
+  if [[ "${helm_major_version}" -lt 3 ]]; then
+    echoerr "helm ${helm_version} is not supported, helm >= 3 is required"
+    exit 1
+  fi
+
+  if ! helmfile_version=$(${helmfile} --version 2>/dev/null); then
+    echoerr "failed to run '${helmfile} --version', helmfile >= 1 is required"
+    exit 1
+  fi
+  echoerr "${helmfile_version}"
+
+  if [[ ! "${helmfile_version}" =~ version\ v?([0-9]+)\. ]]; then
+    echoerr "unable to parse helmfile version '${helmfile_version}', helmfile >= 1 is required"
+    exit 1
+  fi
+
+  if [[ "${BASH_REMATCH[1]}" -lt 1 ]]; then
+    echoerr "${helmfile_version} is not supported, helmfile >= 1 is required"
+    exit 1
+  fi
+}
+
+case "${phase}" in
+  "init" | "generate")
+    check_tool_versions
+    ;;
+esac
 
 helmfile="${helmfile} --helm-binary ${helm} --no-color --allow-no-matching-release"
 
@@ -280,23 +329,12 @@ fi
 
 # TODO: parse helmfile here to detect the operative -f or --file
 
-# these should work for both v2 and v3
-helm_full_version=$(${helm} version --short | cut -d " " -f2)
-helm_major_version=$(echo "${helm_full_version%+*}" | cut -d "." -f1 | sed 's/[^0-9]//g')
-helm_minor_version=$(echo "${helm_full_version%+*}" | cut -d "." -f2 | sed 's/[^0-9]//g')
-helm_patch_version=$(echo "${helm_full_version%+*}" | cut -d "." -f3 | sed 's/[^0-9]//g')
-
-if [[ ${helm_major_version} -eq 3 ]]; then
-  # https://github.com/roboll/helmfile/issues/1015#issuecomment-563488649
-  export HELMFILE_HELM3="1"
-fi
-
 # fix scenarios where KUBE_VERSION is improperly set with trailing +
 # https://github.com/argoproj/argo-cd/issues/8249
 KUBE_VERSION=$(echo "${KUBE_VERSION}" | sed 's/[^0-9\.]*//g')
 
 # set home variable to ensure apps do NOT overlap settings/repos/etc
-export HOME="${HELM_HOME}"
+export HOME="${PLUGIN_APP_HOME}"
 
 echoerr "starting ${phase}"
 
@@ -315,9 +353,10 @@ case $phase in
 
           count=0
 
-          [[ -f "helmfile.yaml" ]] && ((count++))
-          [[ -f "helmfile.yaml.gotmpl" ]] && ((count++))
-          [[ -d "helmfile.d" ]] && ((count++))
+          # NOTE: ((count++)) returns 1 when count is 0 and aborts under set -e
+          [[ -f "helmfile.yaml" ]] && count=$((count + 1))
+          [[ -f "helmfile.yaml.gotmpl" ]] && count=$((count + 1))
+          [[ -d "helmfile.d" ]] && count=$((count + 1))
 
           if [[ $count -gt 1 ]]; then
             echoerr "You can have either helmfile.yaml, helmfile.yaml.gotmpl, or helmfile.d, but not more than one"
@@ -345,10 +384,6 @@ case $phase in
 
       # ensure custom file is processed last
       echo "${HELMFILE_HELMFILE}" >"${HELMFILE_HELMFILE_HELMFILED}/ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ__argocd__helmfile__.yaml"
-    fi
-
-    if [[ ${helm_major_version} -eq 2 ]]; then
-      ${helm} init --client-only
     fi
 
     if [ ! -z "${HELMFILE_INIT_SCRIPT_FILE}" ]; then
@@ -383,21 +418,11 @@ case $phase in
     #                                         The name of a release can be used as a label. --selector name=myrelease
     # --allow-no-matching-release             Do not exit with an error code if the provided selector has no matching releases.
 
-    # apply custom args passed from helmfile down to helm
-    # https://github.com/helm/helm/pull/7054/files (--is-upgrade added to v3)
+    # apply custom args passed from helmfile down to helm template
     # --args --kube-version=1.16,--api-versions=foo
     #
-    # v2
-    # --is-upgrade               set .Release.IsUpgrade instead of .Release.IsInstall
-    # --kube-version string      kubernetes version used as Capabilities.KubeVersion.Major/Minor (default "1.9")
-    # v3
+    # --kube-version string            Kubernetes version used for Capabilities.KubeVersion
     # -a, --api-versions stringArray   Kubernetes api versions used for Capabilities.APIVersions
-    # --no-hooks                   prevent hooks from running during install
-    # --skip-crds                  if set, no CRDs will be installed. By default, CRDs are installed if not already present
-
-    if [[ ${helm_major_version} -eq 2 && "${KUBE_VERSION}" ]]; then
-      INTERNAL_HELM_TEMPLATE_OPTIONS="${INTERNAL_HELM_TEMPLATE_OPTIONS} --kube-version=${KUBE_VERSION}"
-    fi
 
     # support added for --kube-version in 3.6
     # https://github.com/helm/helm/pull/9040

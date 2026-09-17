@@ -6,12 +6,6 @@ setup() {
   common_setup
 }
 
-# The INCLUDE branch counts sources with `[[ -f x ]] && ((count++))`.
-# ((0++)) returns 1, which makes `set -e` abort init silently as soon as any
-# helmfile source exists, so INCLUDE is currently unusable.
-skip_include_bug() {
-  true "known bug: INCLUDE aborts on ((count++)) under set -e (fix planned)"
-}
 
 @test "init: succeeds for a plain helmfile.yaml" {
   write_helmfile helmfile.yaml
@@ -118,7 +112,6 @@ SH
 }
 
 @test "init: HELMFILE_HELMFILE with INCLUDE renders repo helmfile.yaml and param" {
-  skip_include_bug
   write_helmfile helmfile.yaml from-repo
   write_helmfile "${BATS_TEST_TMPDIR}/injected.yaml" from-param
   ARGOCD_ENV_HELMFILE_HELMFILE="$(cat "${BATS_TEST_TMPDIR}/injected.yaml")"
@@ -134,7 +127,6 @@ SH
 }
 
 @test "init: INCLUDE copies helmfile.yaml.gotmpl" {
-  skip_include_bug
   write_helmfile helmfile.yaml.gotmpl from-repo
   export ARGOCD_ENV_HELMFILE_HELMFILE="releases: []"
   export ARGOCD_ENV_HELMFILE_HELMFILE_STRATEGY="INCLUDE"
@@ -143,7 +135,6 @@ SH
 }
 
 @test "init: INCLUDE copies the contents of helmfile.d" {
-  skip_include_bug
   write_helmfile helmfile.d/10-one.yaml one
   write_helmfile helmfile.d/20-two.yaml two
   export ARGOCD_ENV_HELMFILE_HELMFILE="releases: []"
@@ -159,7 +150,6 @@ SH
 }
 
 @test "init: INCLUDE warns when more than one helmfile source exists" {
-  skip_include_bug
   # Current behaviour is a warning only; planned to become a hard failure.
   write_helmfile helmfile.yaml
   write_helmfile helmfile.d/10-one.yaml one
@@ -178,7 +168,6 @@ SH
 }
 
 @test "init: re-running init removes stale injected files" {
-  skip_include_bug
   write_helmfile helmfile.yaml
   export ARGOCD_ENV_HELMFILE_HELMFILE="releases: []"
   export ARGOCD_ENV_HELMFILE_HELMFILE_STRATEGY="INCLUDE"
@@ -190,7 +179,7 @@ SH
 }
 
 @test "init: INCLUDE keeps relative chart paths working" {
-  true "known bug: files are copied into ${INJECTED_DIR}, relative paths break (fix planned)"
+  skip "known bug: files are copied into ${INJECTED_DIR}, relative paths break (fix planned)"
   cat >helmfile.yaml <<'YAML'
 releases:
   - name: probe
@@ -205,7 +194,7 @@ YAML
 }
 
 @test "init: templated HELMFILE_HELMFILE is rendered" {
-  true "known bug: injected file is written as .yaml, helmfile v1 only templates .gotmpl (fix planned)"
+  skip "known bug: injected file is written as .yaml, helmfile v1 only templates .gotmpl (fix planned)"
   export ARGOCD_ENV_HELMFILE_HELMFILE="releases:
   - name: {{ \"probe\" }}
     chart: ${WORK}/chart"

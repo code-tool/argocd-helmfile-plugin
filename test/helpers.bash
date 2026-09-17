@@ -4,7 +4,7 @@
 # Shared setup for all bats tests.
 #
 # Every test gets its own work directory (a fake Argo CD source checkout) and
-# its own HELM_HOME, so tests never share caches, repos or helmfile state.
+# its own PLUGIN_APP_HOME, so tests never share caches, repos or helmfile state.
 
 bats_require_minimum_version 1.5.0
 
@@ -33,7 +33,8 @@ common_setup() {
   export ARGOCD_APP_SOURCE_TARGET_REVISION="main"
 
   # Isolate helm/helmfile state per test.
-  export HELM_HOME="${BATS_TEST_TMPDIR}/home"
+  unset HELM_HOME
+  export PLUGIN_APP_HOME="${BATS_TEST_TMPDIR}/home"
   export HELM_CACHE_HOME="${BATS_TEST_TMPDIR}/helm/cache"
   export HELM_CONFIG_HOME="${BATS_TEST_TMPDIR}/helm/config"
   export HELM_DATA_HOME="${BATS_TEST_TMPDIR}/helm/data"
@@ -74,6 +75,42 @@ run_plugin() {
 plugin_init() {
   run_plugin init
   assert_success
+}
+
+# Create a fake binary that answers version queries with fixed output and
+# passes everything else to the real binary. Prints the path of the fake.
+# Usage: make_fake_version <helm|helmfile> <version output>
+make_fake_version() {
+  local tool="$1" version_output="$2" real dir
+  real="$(command -v "${tool}")"
+  dir="${BATS_TEST_TMPDIR}/fake-${tool}"
+  mkdir -p "${dir}"
+  cat >"${dir}/${tool}" <<SH
+#!/bin/bash
+case "\$*" in
+  "version --template {{.Version}}" | "--version") echo "${version_output}" ;;
+  *) exec "${real}" "\$@" ;;
+esac
+SH
+  chmod +x "${dir}/${tool}"
+  echo "${dir}/${tool}"
+}
+
+# Create a wrapper for a real binary that records each call to
+# ${BATS_TEST_TMPDIR}/<tool>-calls.log. Prints the path of the wrapper.
+# Usage: make_call_logger <helm|helmfile>
+make_call_logger() {
+  local tool="$1" real dir
+  real="$(command -v "${tool}")"
+  dir="${BATS_TEST_TMPDIR}/wrap"
+  mkdir -p "${dir}"
+  cat >"${dir}/${tool}" <<SH
+#!/bin/bash
+echo "${tool} \$*" >>"${BATS_TEST_TMPDIR}/${tool}-calls.log"
+exec "${real}" "\$@"
+SH
+  chmod +x "${dir}/${tool}"
+  echo "${dir}/${tool}"
 }
 
 # Print the value of a key from the rendered probe ConfigMap(s).

@@ -1,3 +1,5 @@
+# Local developer entrypoints. CI calls the same targets.
+
 SHELL := /bin/bash
 
 TOOLS_DIR   := $(CURDIR)/.tools
@@ -16,6 +18,7 @@ BATS_ASSERT_VERSION  := v2.2.4
 
 GO_ARCH := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 
+# Each version lives in its own directory so switching versions never mixes binaries.
 HELM_DIR     := $(TOOLS_DIR)/helm/$(HELM_VERSION)
 HELMFILE_DIR := $(TOOLS_DIR)/helmfile/$(HELMFILE_VERSION)
 
@@ -61,6 +64,9 @@ lint:
 	shellcheck --severity=error src/*.sh
 	shellcheck test/*.bash test/*.sh
 	shellcheck -s bash -e SC2030,SC2031,SC2016 test/*.bats
+	@# Helm 2 support was removed, make sure it does not come back.
+	@if grep -nE 'init --client-only|HELMFILE_HELM3|helm_major_version\} -eq 2' src/*.sh; then \
+	  echo "Helm 2 code found in src/"; exit 1; fi
 
 test: tools
 	@helm version --short

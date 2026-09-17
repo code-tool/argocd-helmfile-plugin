@@ -17,7 +17,7 @@ releases:
 YAML
 
 export ARGOCD_APP_NAME="smoke" ARGOCD_APP_NAMESPACE="smoke-ns" ARGOCD_APP_REVISION="smoke"
-export HELM_HOME="${work}/home"
+export PLUGIN_APP_HOME="${work}/home"
 
 plugin="argocd-helmfile-plugin.sh"
 command -v "${plugin}" >/dev/null || fail "${plugin} not on PATH"
