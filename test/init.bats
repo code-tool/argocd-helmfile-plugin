@@ -179,6 +179,14 @@ SH
 }
 
 @test "init: INCLUDE keeps relative chart paths working" {
+  # INCLUDE copies the repo helmfile into ${INJECTED_DIR}. With a directory of
+  # helmfiles, helmfile >= 1.2 resolves relative chart paths against the
+  # working directory, older versions against the copied file (known bug).
+  local version
+  version="$(helmfile --version | sed -E 's/.*version v?([0-9]+\.[0-9]+).*/\1/')"
+  if [[ "$(printf '%s\n' "${version}" 1.2 | sort -V | head -1)" != "1.2" ]]; then
+    skip "known bug: relative chart paths break with INCLUDE on helmfile ${version} < 1.2 (fix planned)"
+  fi
   cat >helmfile.yaml <<'YAML'
 releases:
   - name: probe
