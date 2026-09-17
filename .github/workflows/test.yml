@@ -12,7 +12,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Shellcheck
         # uses the shellcheck version pinned in the Makefile, not the runner's
@@ -27,23 +27,27 @@ jobs:
         include:
           # Versions pinned in docker/Dockerfile (what the image ships).
           - name: image versions
+            id: image
             make_args: ""
           # Oldest helmfile that supports Helm 4.
           - name: minimum helm 4
+            id: helm4-min
             make_args: HELM_VERSION=v4.0.0 HELMFILE_VERSION=1.2.0
           # Helm 3 is still usable via HELM_BINARY until its EOL (2026-11-11).
           - name: helm v3
+            id: helm3
             make_args: HELM_VERSION=v3.19.4
           - name: helm v3, minimum helmfile
+            id: helm3-helmfile-min
             make_args: HELM_VERSION=v3.19.4 HELMFILE_VERSION=1.0.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache tools
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ matrix.name }}-${{ hashFiles('docker/Dockerfile', 'Makefile') }}
+          key: tools-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('docker/Dockerfile', 'Makefile') }}
 
       - name: Show tool versions under test
         run: make versions ${{ matrix.make_args }}
@@ -54,7 +58,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build image and run smoke test
         run: make test-docker
