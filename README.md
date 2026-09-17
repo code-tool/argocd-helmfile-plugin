@@ -32,11 +32,32 @@ Consider these implications for your environment and act appropriately.
 
 # Requirements
 
-- `helm` >= 3 (Helm 4 recommended; Helm 2 is not supported)
-- `helmfile` >= 1
+- `helm` >= 3.6 (Helm 4 recommended; Helm 2 is not supported)
+- `helmfile` >= 1, and >= 1.2 when used with Helm 4
 
 The plugin checks both versions in the `init` and `generate` phases and fails
 with a clear message if they are not supported.
+
+## Kubernetes capabilities
+
+Argo CD passes the destination cluster's version and APIs as `KUBE_VERSION` and
+`KUBE_API_VERSIONS`. The plugin passes them to `helm template`, so charts can use
+`.Capabilities.KubeVersion` and `.Capabilities.APIVersions.Has`:
+
+- `KUBE_VERSION` is normalized first: a leading `v` and anything after the first
+  `+` or `-` are removed (`v1.29.0+k3s1` → `1.29.0`, `1.29.0-eks-5e0fdde` → `1.29.0`).
+  Values that are still not `<major>.<minor>[.<patch>]` are ignored with a warning.
+- `KUBE_API_VERSIONS` is passed as `--api-versions`.
+
+## Helm 4 notes
+
+- Post-renderers are Helm plugins in Helm 4. `--post-renderer` in
+  `HELM_TEMPLATE_OPTIONS` or `postRenderer:` in helmfile must name an installed
+  plugin, not an executable path.
+- `helm registry login` takes a domain name only (no path). Check
+  `HELMFILE_INIT_SCRIPT_FILE` scripts that log in to OCI registries.
+- Plugins installed via `HELMFILE_INIT_SCRIPT_FILE` need `--verify=false` unless
+  they are signed and their key is available.
 
 # Installation
 
@@ -163,7 +184,7 @@ prevents the plugin(s) from being downloaded over and over each run.
   - mountPath: /helm/data
     name: helm-data-home
 
-    [[ ! -d "${HELM_DATA_HOME}/plugins/helm-secrets" ]] && /custom-tools/helm-v3 plugin install https://github.com/jkroepke/helm-secrets --version ${HELM_SECRETS_VERSION}
+    [[ ! -d "${HELM_DATA_HOME}/plugins/helm-secrets" ]] && /custom-tools/helm plugin install https://github.com/jkroepke/helm-secrets --version ${HELM_SECRETS_VERSION} --verify=false
     chown -R 999:999 "${HELM_DATA_HOME}"
 
 # lastly, in your app definition

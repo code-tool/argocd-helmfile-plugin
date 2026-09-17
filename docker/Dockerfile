@@ -31,6 +31,7 @@ RUN groupadd -g $ARGOCD_USER_ID argocd && \
 # Binary versions
 # https://github.com/helm/helm/releases
 # Supported Kubernetes Versions 1.35.x - 1.32.x (https://helm.sh/docs/topics/version_skew/)
+# Plugin requires helm >= 3.6; with helm 4, helmfile >= 1.2
 ARG HELM_VERSION="v4.2.3"
 # https://github.com/helmfile/helmfile/releases
 ARG HELMFILE_VERSION="1.5.2"
@@ -94,7 +95,10 @@ ARG HELM_GIT_VERSION="1.5.2"
 # https://github.com/jkroepke/helm-secrets/releases
 ARG HELM_SECRETS_VERSION="4.7.6"
 
-# TODO... HELM 4+ WARNING: Skipping plugin signature verification. Use --verify=false to skip verification
+# Helm 4 verifies plugin signatures by default:
+# - helm-diff and helm-git are installed from git, which cannot be verified
+# - helm-secrets tarballs are signed, but need the publisher key in a gpg keyring
+# so verification is skipped explicitly; versions are pinned above.
 RUN \
   helm plugin install https://github.com/databus23/helm-diff   --version ${HELM_DIFF_VERSION} --verify=false && \
   helm plugin install https://github.com/aslafy-z/helm-git     --version ${HELM_GIT_VERSION} --verify=false && \

@@ -46,8 +46,8 @@
 # init is called before every manifest generation
 # it can be used to download dependencies, etc, etc
 
-# does not have "v" in front
-# KUBE_VERSION="<major>.<minor>"
+# set by Argo CD from the destination cluster, see normalize_kube_version()
+# KUBE_VERSION="<major>.<minor>[.<patch>]" (may carry a "v" prefix or vendor suffix)
 # KUBE_API_VERSIONS="v1,apps/v1,..."
 
 # error/exit on any failure
@@ -103,6 +103,19 @@ truthy_test() {
   fi
 
   return 1
+}
+
+# Argo CD passes the cluster version as reported by the API server, which may
+# carry a leading "v", a trailing "+" or a vendor suffix:
+#   1.29, 1.29+, v1.29.3, 1.29.0+k3s1, 1.29.0-eks-5e0fdde
+# https://github.com/argoproj/argo-cd/issues/8249
+# Prints "<major>.<minor>[.<patch>]", or nothing if the value is not usable.
+normalize_kube_version() {
+  local version="${1#v}"
+  version="${version%%[+-]*}"
+  if [[ "${version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "${version}"
+  fi
 }
 
 cache_set_time() {
@@ -269,21 +282,24 @@ fi
 check_tool_versions() {
   local helm_version helmfile_version
 
+  local helm_major helm_minor helmfile_major helmfile_minor
+
   if ! helm_version=$(${helm} version --template '{{.Version}}' 2>/dev/null); then
-    echoerr "failed to run '${helm} version', helm >= 3 is required"
+    echoerr "failed to run '${helm} version', helm >= 3.6 is required"
     exit 1
   fi
   echoerr "helm version ${helm_version}"
 
   if [[ ! "${helm_version}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
-    echoerr "unable to parse helm version '${helm_version}', helm >= 3 is required"
+    echoerr "unable to parse helm version '${helm_version}', helm >= 3.6 is required"
     exit 1
   fi
-  helm_major_version="${BASH_REMATCH[1]}"
-  helm_minor_version="${BASH_REMATCH[2]}"
+  helm_major="${BASH_REMATCH[1]}"
+  helm_minor="${BASH_REMATCH[2]}"
 
-  if [[ "${helm_major_version}" -lt 3 ]]; then
-    echoerr "helm ${helm_version} is not supported, helm >= 3 is required"
+  # 3.6 added "helm template --kube-version"
+  if ((helm_major < 3 || (helm_major == 3 && helm_minor < 6))); then
+    echoerr "helm ${helm_version} is not supported, helm >= 3.6 is required"
     exit 1
   fi
 
@@ -293,13 +309,22 @@ check_tool_versions() {
   fi
   echoerr "${helmfile_version}"
 
-  if [[ ! "${helmfile_version}" =~ version\ v?([0-9]+)\. ]]; then
+  if [[ ! "${helmfile_version}" =~ version\ v?([0-9]+)\.([0-9]+)\. ]]; then
     echoerr "unable to parse helmfile version '${helmfile_version}', helmfile >= 1 is required"
     exit 1
   fi
+  helmfile_major="${BASH_REMATCH[1]}"
+  helmfile_minor="${BASH_REMATCH[2]}"
 
-  if [[ "${BASH_REMATCH[1]}" -lt 1 ]]; then
+  if ((helmfile_major < 1)); then
     echoerr "${helmfile_version} is not supported, helmfile >= 1 is required"
+    exit 1
+  fi
+
+  # older helmfile runs "helm version --client", which Helm 4 removed
+  # https://github.com/helmfile/helmfile/issues/2268
+  if ((helm_major >= 4 && helmfile_major == 1 && helmfile_minor < 2)); then
+    echoerr "${helmfile_version} does not support helm ${helm_version}, helmfile >= 1.2 is required for helm 4"
     exit 1
   fi
 }
@@ -328,10 +353,6 @@ if [[ -v HELMFILE_HELMFILE ]]; then
 fi
 
 # TODO: parse helmfile here to detect the operative -f or --file
-
-# fix scenarios where KUBE_VERSION is improperly set with trailing +
-# https://github.com/argoproj/argo-cd/issues/8249
-KUBE_VERSION=$(echo "${KUBE_VERSION}" | sed 's/[^0-9\.]*//g')
 
 # set home variable to ensure apps do NOT overlap settings/repos/etc
 export HOME="${PLUGIN_APP_HOME}"
@@ -406,9 +427,6 @@ case $phase in
     ;;
 
   "generate")
-    INTERNAL_HELMFILE_TEMPLATE_OPTIONS=
-    INTERNAL_HELM_TEMPLATE_OPTIONS=
-
     # helmfile args
     # --environment default, -e default       specify the environment name. defaults to default
     # --namespace value, -n value             Set namespace. Uses the namespace set in the context by default, and is available in templates as {{ .Namespace }}
@@ -418,31 +436,38 @@ case $phase in
     #                                         The name of a release can be used as a label. --selector name=myrelease
     # --allow-no-matching-release             Do not exit with an error code if the provided selector has no matching releases.
 
-    # apply custom args passed from helmfile down to helm template
-    # --args --kube-version=1.16,--api-versions=foo
-    #
-    # --kube-version string            Kubernetes version used for Capabilities.KubeVersion
-    # -a, --api-versions stringArray   Kubernetes api versions used for Capabilities.APIVersions
+    # options for "helmfile template"
+    helmfile_template_args=(--skip-deps)
+    # options passed by helmfile to "helm template" (--args, split on spaces)
+    helm_template_args=()
 
-    # support added for --kube-version in 3.6
-    # https://github.com/helm/helm/pull/9040
-    if [[ ${helm_major_version} -eq 3 && ${helm_minor_version} -ge 6 && "${KUBE_VERSION}" ]]; then
-      INTERNAL_HELM_TEMPLATE_OPTIONS="${INTERNAL_HELM_TEMPLATE_OPTIONS} --kube-version=${KUBE_VERSION}"
+    # Capabilities.KubeVersion
+    kube_version=$(normalize_kube_version "${KUBE_VERSION}")
+    if [[ "${kube_version}" ]]; then
+      helmfile_template_args+=(--kube-version "${kube_version}")
+    elif [[ "${KUBE_VERSION}" ]]; then
+      echoerr "WARNING: ignoring invalid KUBE_VERSION '${KUBE_VERSION}'"
     fi
 
-    if [[ ${helm_major_version} -eq 3 && "${KUBE_API_VERSIONS}" ]]; then
-      INTERNAL_HELM_API_VERSIONS=""
-      for v in ${KUBE_API_VERSIONS//,/ }; do
-        INTERNAL_HELM_API_VERSIONS="${INTERNAL_HELM_API_VERSIONS} --api-versions=$v"
-      done
-      INTERNAL_HELM_TEMPLATE_OPTIONS="${INTERNAL_HELM_TEMPLATE_OPTIONS} ${INTERNAL_HELM_API_VERSIONS}"
+    # Capabilities.APIVersions, helm accepts a comma-separated list
+    if [[ "${KUBE_API_VERSIONS}" ]]; then
+      helm_template_args+=("--api-versions=${KUBE_API_VERSIONS}")
+    fi
+
+    if [[ "${HELM_TEMPLATE_OPTIONS}" ]]; then
+      helm_template_args+=("${HELM_TEMPLATE_OPTIONS}")
+    fi
+
+    if [[ ${#helm_template_args[@]} -gt 0 ]]; then
+      helmfile_template_args+=(--args "${helm_template_args[*]}")
     fi
 
     # TODO: support post process pipeline here
+    # HELMFILE_TEMPLATE_OPTIONS is intentionally unquoted (multiple options)
+    # shellcheck disable=SC2086
     ${helmfile} \
       template \
-      --skip-deps ${INTERNAL_HELMFILE_TEMPLATE_OPTIONS} \
-      --args "${INTERNAL_HELM_TEMPLATE_OPTIONS} ${HELM_TEMPLATE_OPTIONS}" \
+      "${helmfile_template_args[@]}" \
       ${HELMFILE_TEMPLATE_OPTIONS}
     ;;
 

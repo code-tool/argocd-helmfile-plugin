@@ -15,11 +15,15 @@ and this project adheres to Semantic Versioning (https://semver.org/).
 - Helm version is detected with `helm version --template '{{.Version}}'` instead of parsing `--short` output.
 - `init` and `generate` fail with a clear error for Helm < 3, helmfile < 1 or unparsable versions.
 - `discover` and `parameters` no longer run `helm`/`helmfile`.
+- Minimum versions: helm >= 3.6, helmfile >= 1 (>= 1.2 with Helm 4).
+- `KUBE_VERSION` is passed with helmfile's `--kube-version` flag; `KUBE_API_VERSIONS` as one comma-separated `--api-versions`. `--args` is only passed when needed.
 
 ### Deprecated
 - `HELM_HOME`: use `PLUGIN_APP_HOME`. `HELM_HOME` is still accepted with a warning and is exported with the same value.
 
 ### Fixed
+- Helm 4: `KUBE_VERSION` and `KUBE_API_VERSIONS` were ignored, so charts rendered with Helm's default capabilities instead of the destination cluster's.
+- `KUBE_VERSION` with vendor suffixes was corrupted (`1.29.0+k3s1` became `1.29.031`); it is now normalized, invalid values are ignored with a warning.
 - `HELMFILE_HELMFILE_STRATEGY=INCLUDE` aborted `init` silently when any helmfile source existed (`((count++))` under `set -e`).
 
 ### Added

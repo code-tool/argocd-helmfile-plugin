@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Tool version detection: Helm 2 is not supported, Helm >= 3 and
-# helmfile >= 1 are required. Versions are only checked in init/generate.
+# Tool version detection: Helm 2 is not supported, Helm >= 3.6 and
+# helmfile >= 1 (>= 1.2 with Helm 4) are required. Versions are only checked in init/generate.
 
 setup() {
   load helpers
@@ -27,7 +27,7 @@ setup() {
   export HELM_BINARY
   run_plugin init
   assert_failure
-  assert_regex "${stderr}" "helm v2.17.0 is not supported, helm >= 3 is required"
+  assert_regex "${stderr}" "helm v2.17.0 is not supported, helm >= 3.6 is required"
 }
 
 @test "versions: helm 2 is rejected in generate" {
@@ -36,11 +36,14 @@ setup() {
   run_plugin generate
   assert_failure
   assert_output ""
-  assert_regex "${stderr}" "helm >= 3 is required"
+  assert_regex "${stderr}" "helm >= 3.6 is required"
 }
 
 @test "versions: helm 3 and 4 versions are accepted" {
   local v
+  # fake a helm 4 compatible helmfile so the real helmfile version does not matter
+  HELMFILE_BINARY="$(make_fake_version helmfile "helmfile version 1.2.0")"
+  export HELMFILE_BINARY
   for v in v3.6.0 v3.19.4 v4.0.0 v4.2.3; do
     HELM_BINARY="$(make_fake_version helm "${v}")"
     export HELM_BINARY
@@ -48,6 +51,42 @@ setup() {
     assert_success
     assert_regex "${stderr}" "helm version ${v}"
   done
+}
+
+@test "versions: helm older than 3.6 is rejected" {
+  local v
+  for v in v3.0.0 v3.5.4; do
+    HELM_BINARY="$(make_fake_version helm "${v}")"
+    export HELM_BINARY
+    run_plugin init
+    assert_failure
+    assert_regex "${stderr}" "helm ${v} is not supported, helm >= 3.6 is required"
+  done
+}
+
+@test "versions: helmfile older than 1.2 is rejected with helm 4" {
+  HELM_BINARY="$(make_fake_version helm "v4.0.0")"
+  HELMFILE_BINARY="$(make_fake_version helmfile "helmfile version 1.1.9")"
+  export HELM_BINARY HELMFILE_BINARY
+  run_plugin init
+  assert_failure
+  assert_regex "${stderr}" "helmfile >= 1.2 is required for helm 4"
+}
+
+@test "versions: helmfile 1.2 is accepted with helm 4" {
+  HELM_BINARY="$(make_fake_version helm "v4.0.0")"
+  HELMFILE_BINARY="$(make_fake_version helmfile "helmfile version 1.2.0")"
+  export HELM_BINARY HELMFILE_BINARY
+  run_plugin init
+  assert_success
+}
+
+@test "versions: helmfile older than 1.2 is accepted with helm 3" {
+  HELM_BINARY="$(make_fake_version helm "v3.19.4")"
+  HELMFILE_BINARY="$(make_fake_version helmfile "helmfile version 1.1.9")"
+  export HELM_BINARY HELMFILE_BINARY
+  run_plugin init
+  assert_success
 }
 
 @test "versions: unparsable helm version is rejected" {
@@ -75,7 +114,7 @@ setup() {
 
 @test "versions: helmfile 1.x is accepted with and without v prefix" {
   local v
-  for v in "helmfile version 1.5.2" "helmfile version v1.0.0"; do
+  for v in "helmfile version 1.5.2" "helmfile version v1.2.0"; do
     HELMFILE_BINARY="$(make_fake_version helmfile "${v}")"
     export HELMFILE_BINARY
     run_plugin init
