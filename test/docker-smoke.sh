@@ -1,6 +1,4 @@
 #!/bin/bash
-# Smoke test executed inside the built image (make test-docker).
-# Checks that the shipped binaries and the plugin work together.
 set -euo pipefail
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -28,7 +26,6 @@ command -v "${plugin}" >/dev/null || fail "${plugin} not on PATH"
 out="$("${plugin}" generate)" || fail "generate failed"
 grep -q 'releaseNamespace: "smoke-ns"' <<<"${out}" || fail "unexpected generate output: ${out}"
 
-# Plugins shipped in the image must be visible to helm.
 plugins="$(helm plugin list)"
 for p in diff helm-git secrets; do
   grep -q "^${p}\b" <<<"${plugins}" || fail "helm plugin ${p} missing"

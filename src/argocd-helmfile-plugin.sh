@@ -50,7 +50,7 @@
 # KUBE_VERSION="<major>.<minor>[.<patch>]" (may carry a "v" prefix or vendor suffix)
 # KUBE_API_VERSIONS="v1,apps/v1,..."
 
-# exit on errors, unset variables and failures inside pipelines
+# exit on errors, unset variables and failures
 set -Eeuo pipefail
 
 # debugging execution
@@ -107,9 +107,6 @@ export_prefixed_env() {
   done < <(env -0)
 }
 
-# Argo CD passes the cluster version as reported by the API server, which may
-# carry a leading "v", a trailing "+" or a vendor suffix:
-#   1.29, 1.29+, v1.29.3, 1.29.0+k3s1, 1.29.0-eks-5e0fdde
 # https://github.com/argoproj/argo-cd/issues/8249
 # Prints "<major>.<minor>[.<patch>]", or nothing if the value is not usable.
 normalize_kube_version() {
@@ -202,7 +199,6 @@ check_tool_versions() {
     exit 1
   fi
 
-  # older helmfile runs "helm version --client", which Helm 4 removed
   # https://github.com/helmfile/helmfile/issues/2268
   if ((helm_major >= 4 && helmfile_major == 1 && helmfile_minor < 2)); then
     echoerr "${helmfile_version} does not support helm ${helm_version}, helmfile >= 1.2 is required for helm 4"
@@ -230,7 +226,6 @@ fi
 phase="${1}"
 SCRIPT_NAME=$(basename "${0}")
 
-# export vars unprefixed, params (PARAM_) take precedence over ENV vars (ARGOCD_ENV_)
 # https://github.com/argoproj/argo-cd/blob/master/docs/proposals/parameterized-config-management-plugins.md#how-will-the-cmp-know-what-parameter-values-are-set
 export_prefixed_env "ARGOCD_ENV_"
 export_prefixed_env "PARAM_"
@@ -262,8 +257,6 @@ for var in HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME; do
   fi
 done
 
-# per-application home directory, later used as HOME so apps do NOT share
-# helm repositories, registry logins, caches, etc.
 # HELM_HOME is accepted as a deprecated alias (helm ignores it since v3).
 PLUGIN_APP_HOME="${PLUGIN_APP_HOME:-}"
 if [[ -z "${PLUGIN_APP_HOME}" && "${HELM_HOME:-}" ]]; then
@@ -277,7 +270,6 @@ else
   PLUGIN_APP_HOME="/tmp/__${SCRIPT_NAME}__/apps/${ARGOCD_APP_NAME:-}"
 fi
 
-# HELM_HOME is kept in sync for init scripts that still reference it
 export PLUGIN_APP_HOME
 export HELM_HOME="${PLUGIN_APP_HOME}"
 
@@ -380,14 +372,6 @@ case "${phase}" in
     ;;
 
   "generate")
-    # helmfile args
-    # --environment default, -e default       specify the environment name. defaults to default
-    # --namespace value, -n value             Set namespace. Uses the namespace set in the context by default, and is available in templates as {{ .Namespace }}
-    # --selector value, -l value              Only run using the releases that match labels. Labels can take the form of foo=bar or foo!=bar.
-    #                                         A release must match all labels in a group in order to be used. Multiple groups can be specified at once.
-    #                                         --selector tier=frontend,tier!=proxy --selector tier=backend. Will match all frontend, non-proxy releases AND all backend releases.
-    #                                         The name of a release can be used as a label. --selector name=myrelease
-    # --allow-no-matching-release             Do not exit with an error code if the provided selector has no matching releases.
 
     # options for "helmfile template"
     helmfile_template_args=(--skip-deps)
@@ -428,7 +412,7 @@ case "${phase}" in
   "discover")
     # https://github.com/argoproj/argo-cd/issues/4831
     # discovery by default is not executed in the ARGOCD_APP_SOURCE_PATH
-    # stdout plus exit code 0 means "use this plugin", diagnostics go to stderr
+    # stdout plus exit code 0 means "use this plugin", diagnostics go to stderr_APP_SOURCE_PATH
     if [[ "${HELMFILE_DISCOVERY_RESPONSE:-}" ]]; then
       if truthy_test "${HELMFILE_DISCOVERY_RESPONSE}"; then
         echo "forced discovery response: enabled"

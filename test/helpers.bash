@@ -1,10 +1,4 @@
 # shellcheck shell=bash
-# Variables set here are used by the .bats files; $output/$stderr are set by bats.
-# shellcheck disable=SC2034,SC2154
-# Shared setup for all bats tests.
-#
-# Every test gets its own work directory (a fake Argo CD source checkout) and
-# its own PLUGIN_APP_HOME, so tests never share caches, repos or helmfile state.
 
 bats_require_minimum_version 1.5.0
 
@@ -50,7 +44,6 @@ common_setup() {
   export KUBECONFIG="${BATS_TEST_TMPDIR}/no-kubeconfig"
 }
 
-# Write a helmfile.yaml with a single release pointing at the probe chart.
 # Usage: write_helmfile [file] [release-name]
 write_helmfile() {
   local file="${1:-helmfile.yaml}" name="${2:-probe}"
@@ -62,11 +55,6 @@ releases:
 YAML
 }
 
-# Run a plugin phase. stdout and stderr are kept apart because Argo CD
-# treats stdout of "generate" as the manifests.
-#   $status  exit code
-#   $output  stdout
-#   $stderr  stderr
 run_plugin() {
   run --separate-stderr bash "${PLUGIN}" "$@"
 }
@@ -77,8 +65,6 @@ plugin_init() {
   assert_success
 }
 
-# Create a fake binary that answers version queries with fixed output and
-# passes everything else to the real binary. Prints the path of the fake.
 # Usage: make_fake_version <helm|helmfile> <version output>
 make_fake_version() {
   local tool="$1" version_output="$2" real dir
@@ -96,8 +82,6 @@ SH
   echo "${dir}/${tool}"
 }
 
-# Create a wrapper for a real binary that records each call to
-# ${BATS_TEST_TMPDIR}/<tool>-calls.log. Prints the path of the wrapper.
 # Usage: make_call_logger <helm|helmfile>
 make_call_logger() {
   local tool="$1" real dir
@@ -113,7 +97,6 @@ SH
   echo "${dir}/${tool}"
 }
 
-# Print the value of a key from the rendered probe ConfigMap(s).
 # Usage: probe_value <key> [release-name]
 probe_value() {
   local key="$1" name="${2:-probe}"
