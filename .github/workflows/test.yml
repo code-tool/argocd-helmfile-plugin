@@ -1,4 +1,4 @@
-name: Test
+name: Tests
 
 on:
   push:
@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -18,8 +19,8 @@ jobs:
         # uses the shellcheck version pinned in the Makefile, not the runner's
         run: make lint
 
-  bats:
-    name: bats (${{ matrix.name }})
+  tests:
+    name: Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -34,10 +35,10 @@ jobs:
             id: helm4-min
             make_args: HELM_VERSION=v4.0.0 HELMFILE_VERSION=1.2.0
           # Helm 3 is still usable via HELM_BINARY until its EOL (2026-11-11).
-          - name: helm v3
+          - name: helm 3
             id: helm3
             make_args: HELM_VERSION=v3.19.4
-          - name: helm v3, minimum helmfile
+          - name: helm 3, minimum helmfile
             id: helm3-helmfile-min
             make_args: HELM_VERSION=v3.19.4 HELMFILE_VERSION=1.0.0
     steps:
@@ -52,10 +53,11 @@ jobs:
       - name: Show tool versions under test
         run: make versions ${{ matrix.make_args }}
 
-      - name: Run bats tests
+      - name: Run tests
         run: make test ${{ matrix.make_args }}
 
   docker:
+    name: Docker image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
