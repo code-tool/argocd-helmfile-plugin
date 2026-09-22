@@ -71,8 +71,6 @@ plugin_init() {
   assert_success
 }
 
-# Create a fake binary that answers version queries with fixed output and
-# passes everything else to the real binary. Prints the path of the fake.
 # Usage: make_fake_version <helm|helmfile> <version output>
 make_fake_version() {
   local tool="$1" version_output="$2" real dir
@@ -90,8 +88,6 @@ SH
   echo "${dir}/${tool}"
 }
 
-# Create a wrapper for a real binary that records each call to
-# ${BATS_TEST_TMPDIR}/<tool>-calls.log. Prints the path of the wrapper.
 # Usage: make_call_logger <helm|helmfile>
 make_call_logger() {
   local tool="$1" real dir
@@ -107,8 +103,6 @@ SH
   echo "${dir}/${tool}"
 }
 
-# Print the value of a key from the rendered probe ConfigMap(s).
-# shellcheck disable=SC2154 # $output is set by bats "run"
 # Usage: probe_value <key> [release-name]
 probe_value() {
   local key="$1" name="${2:-probe}"
