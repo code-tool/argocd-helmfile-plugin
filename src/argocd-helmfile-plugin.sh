@@ -163,21 +163,21 @@ check_tool_versions() {
   local helm_major helm_minor helmfile_major helmfile_minor
 
   if ! helm_version=$("${helm}" version --template '{{.Version}}' 2>/dev/null); then
-    echoerr "failed to run '${helm} version', helm >= 3.6 is required"
+    echoerr "failed to run '${helm} version', helm >= 3.19 is required"
     exit 1
   fi
   echoerr "helm version ${helm_version}"
 
   if [[ ! "${helm_version}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
-    echoerr "unable to parse helm version '${helm_version}', helm >= 3.6 is required"
+    echoerr "unable to parse helm version '${helm_version}', helm >= 3.19 is required"
     exit 1
   fi
   helm_major="${BASH_REMATCH[1]}"
   helm_minor="${BASH_REMATCH[2]}"
 
-  # 3.6 added "helm template --kube-version"
-  if ((helm_major < 3 || (helm_major == 3 && helm_minor < 6))); then
-    echoerr "helm ${helm_version} is not supported, helm >= 3.6 is required"
+  # older helm 3 minors are end of life and are not supported
+  if ((helm_major < 3 || (helm_major == 3 && helm_minor < 19))); then
+    echoerr "helm ${helm_version} is not supported, helm >= 3.19 is required"
     exit 1
   fi
 
@@ -292,8 +292,8 @@ if [[ "${ARGOCD_APP_NAMESPACE:-}" ]] && ! truthy_test "${HELMFILE_USE_CONTEXT_NA
   helmfile_cmd+=(--namespace "${ARGOCD_APP_NAMESPACE}")
 fi
 
+global_options=()
 if [[ "${HELMFILE_GLOBAL_OPTIONS:-}" ]]; then
-  global_options=()
   split_words global_options "${HELMFILE_GLOBAL_OPTIONS}"
   helmfile_cmd+=("${global_options[@]}")
 fi
@@ -412,7 +412,6 @@ case "${phase}" in
   "discover")
     # https://github.com/argoproj/argo-cd/issues/4831
     # discovery by default is not executed in the ARGOCD_APP_SOURCE_PATH
-    # stdout plus exit code 0 means "use this plugin", diagnostics go to stderr_APP_SOURCE_PATH
     if [[ "${HELMFILE_DISCOVERY_RESPONSE:-}" ]]; then
       if truthy_test "${HELMFILE_DISCOVERY_RESPONSE}"; then
         echo "forced discovery response: enabled"
@@ -422,10 +421,14 @@ case "${phase}" in
       exit 1
     fi
 
-    if [[ "${HELMFILE_GLOBAL_OPTIONS:-}" == *--file* || "${HELMFILE_GLOBAL_OPTIONS:-}" == *-f* ]]; then
-      echo "custom file path provided, assumed proper"
-      exit 0
-    fi
+    for option in "${global_options[@]}"; do
+      case "${option}" in
+        -f | --file | -f=* | --file=*)
+          echo "custom file path provided, assumed proper"
+          exit 0
+          ;;
+      esac
+    done
 
     if [[ -v HELMFILE_HELMFILE ]]; then
       echo "complete helmfile provided, assumed proper"

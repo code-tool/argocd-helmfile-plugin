@@ -32,7 +32,7 @@ Consider these implications for your environment and act appropriately.
 
 # Requirements
 
-- `helm` >= 3.6 (Helm 4 recommended; Helm 2 is not supported)
+- `helm` >= 3.19 (Helm 4 recommended; Helm 2 and older Helm 3 minors are not supported)
 - `helmfile` >= 1, and >= 1.2 when used with Helm 4
 
 The plugin checks both versions in the `init` and `generate` phases and fails

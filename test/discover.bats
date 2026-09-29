@@ -59,11 +59,22 @@ setup() {
   assert_success
 }
 
+@test "discover: -f and --file are matched as whole options only" {
+  local o
+  for o in "--file=custom/helmfile.yaml" "-f=custom/helmfile.yaml" "--environment prod --file custom/helmfile.yaml"; do
+    export ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS="${o}"
+    run_plugin discover
+    assert_success
+  done
+}
+
 @test "discover: option merely containing '-f' does not match" {
-  skip "known bug: *-f* glob matches e.g. --kube-context=prod-frontend (fix planned)"
-  export ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS="--kube-context=prod-frontend"
-  run_plugin discover
-  assert_failure
+  local o
+  for o in "-e prod-frankfurt" "--kube-context=prod-frontend" "--selector tier=frontend"; do
+    export ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS="${o}"
+    run_plugin discover
+    assert_failure
+  done
 }
 
 @test "discover: diagnostics do not go to stdout on no match" {

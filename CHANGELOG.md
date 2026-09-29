@@ -6,7 +6,7 @@ The format is based on Keep a Changelog (https://keepachangelog.com/en/1.1.0/)
 and this project adheres to Semantic Versioning (https://semver.org/).
 ---
 
-## [1.3.2]
+## [1.4.0]
 ### Removed
 - Dead code: `if [[ true ]]` wrappers, duplicate `PATH` expansion, unused `print_env_vars`, unused `/tmp/__<script>__/bin` directory, unreachable block after `exit 0` in `parameters`, commented-out `find` blocks.
 - Remaining Helm 2 code: `helm init --client-only`, Helm 2 `--kube-version` handling and comments.
@@ -14,9 +14,9 @@ and this project adheres to Semantic Versioning (https://semver.org/).
 
 ### Changed
 - Helm version is detected with `helm version --template '{{.Version}}'` instead of parsing `--short` output.
-- `init` and `generate` fail with a clear error for Helm < 3, helmfile < 1 or unparsable versions.
+- `init` and `generate` fail with a clear error for Helm < 3.19, helmfile < 1 or unparsable versions.
 - `discover` and `parameters` no longer run `helm`/`helmfile`.
-- Minimum versions: helm >= 3.6, helmfile >= 1 (>= 1.2 with Helm 4).
+- Minimum versions: helm >= 3.19, helmfile >= 1 (>= 1.2 with Helm 4).
 - Script runs with `set -Eeuo pipefail` and reports the failing phase and line on errors.
 - `discover` writes "no match" and "forced response: disabled" messages to stderr; stdout is only used for a match.
 - Options in `HELMFILE_GLOBAL_OPTIONS` / `HELMFILE_TEMPLATE_OPTIONS` are split into words without glob expansion; multi-line values are supported.
@@ -33,6 +33,7 @@ and this project adheres to Semantic Versioning (https://semver.org/).
 - Helm 4: `KUBE_VERSION` and `KUBE_API_VERSIONS` were ignored, so charts rendered with Helm's default capabilities instead of the destination cluster's.
 - `KUBE_VERSION` with vendor suffixes was corrupted (`1.29.0+k3s1` became `1.29.031`); it is now normalized, invalid values are ignored with a warning.
 - `HELMFILE_HELMFILE_STRATEGY=INCLUDE` aborted `init` silently when any helmfile source existed (`((count++))` under `set -e`).
+- `discover` matched any `HELMFILE_GLOBAL_OPTIONS` value containing `-f` (e.g. `-e prod-frankfurt`); `-f` and `--file` are now matched as whole options.
 
 ### Added
 - `PLUGIN_APP_HOME` environment variable.
