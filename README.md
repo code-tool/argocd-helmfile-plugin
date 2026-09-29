@@ -30,6 +30,35 @@ Consider these implications for your environment and act appropriately.
 - https://github.com/helmfile/helmfile/pull/1 (can disable `exec` using env vars)
 - the execution pod/context is the `argocd-repo-server`
 
+# Requirements
+
+- `helm` >= 3.19 (Helm 4 recommended; Helm 2 and older Helm 3 minors are not supported)
+- `helmfile` >= 1, and >= 1.2 when used with Helm 4
+
+The plugin checks both versions in the `init` and `generate` phases and fails
+with a clear message if they are not supported.
+
+## Kubernetes capabilities
+
+Argo CD passes the destination cluster's version and APIs as `KUBE_VERSION` and
+`KUBE_API_VERSIONS`. The plugin passes them to `helm template`, so charts can use
+`.Capabilities.KubeVersion` and `.Capabilities.APIVersions.Has`:
+
+- `KUBE_VERSION` is normalized first: a leading `v` and anything after the first
+  `+` or `-` are removed (`v1.29.0+k3s1` → `1.29.0`, `1.29.0-eks-5e0fdde` → `1.29.0`).
+  Values that are still not `<major>.<minor>[.<patch>]` are ignored with a warning.
+- `KUBE_API_VERSIONS` is passed as `--api-versions`.
+
+## Helm 4 notes
+
+- Post-renderers are Helm plugins in Helm 4. `--post-renderer` in
+  `HELM_TEMPLATE_OPTIONS` or `postRenderer:` in helmfile must name an installed
+  plugin, not an executable path.
+- `helm registry login` takes a domain name only (no path). Check
+  `HELMFILE_INIT_SCRIPT_FILE` scripts that log in to OCI registries.
+- Plugins installed via `HELMFILE_INIT_SCRIPT_FILE` need `--verify=false` unless
+  they are signed and their key is available.
+
 # Installation
 
 - https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
@@ -101,6 +130,11 @@ optional):
     `HELMFILE_HELMFILE` should the same release name be declared in multiple
     files
 - `HELMFILE_CACHE_CLEANUP` - run helmfile cache cleanup on init
+- `PLUGIN_APP_HOME` - per-application directory used as `HOME` while running
+  `helm`/`helmfile`, so applications do not share repositories, registry
+  logins or caches. Defaults to `/tmp/__argocd-helmfile-plugin.sh__/apps/${ARGOCD_APP_NAME}`
+- `HELM_HOME` - **deprecated** alias for `PLUGIN_APP_HOME` (Helm itself ignores
+  it since v3). Still accepted with a warning; `PLUGIN_APP_HOME` wins if both are set
 
 Of the above `ENV` variables, the following do variable expansion on the value:
 
@@ -108,6 +142,9 @@ Of the above `ENV` variables, the following do variable expansion on the value:
 - `HELMFILE_TEMPLATE_OPTIONS`
 - `HELM_TEMPLATE_OPTIONS`
 - `HELMFILE_INIT_SCRIPT_FILE`
+- `PLUGIN_APP_HOME` (and deprecated `HELM_HOME`)
+- `HELM_CACHE_HOME`
+- `HELM_CONFIG_HOME`
 - `HELM_DATA_HOME`
 
 Meaning, you can do things like:
@@ -147,7 +184,7 @@ prevents the plugin(s) from being downloaded over and over each run.
   - mountPath: /helm/data
     name: helm-data-home
 
-    [[ ! -d "${HELM_DATA_HOME}/plugins/helm-secrets" ]] && /custom-tools/helm-v3 plugin install https://github.com/jkroepke/helm-secrets --version ${HELM_SECRETS_VERSION}
+    [[ ! -d "${HELM_DATA_HOME}/plugins/helm-secrets" ]] && /custom-tools/helm plugin install https://github.com/jkroepke/helm-secrets --version ${HELM_SECRETS_VERSION} --verify=false
     chown -R 999:999 "${HELM_DATA_HOME}"
 
 # lastly, in your app definition
@@ -171,6 +208,27 @@ etc. The value can be a relative or absolute path and the file itself can be
 injected using an `initContainers` or stored in the application git repository.
 
 ## Development
+
+### Tests
+
+Tests use [bats-core](https://github.com/bats-core/bats-core) and run the plugin
+against the real `helm` and `helmfile` binaries, using the versions pinned in
+`docker/Dockerfile`. No cluster or network access to chart repositories is needed.
+
+```bash
+make test         # downloads helm, helmfile and bats into .tools/, then runs test/*.bats
+make lint         # shellcheck
+make test-docker  # builds the image and runs test/docker-smoke.sh inside it
+```
+
+Requirements: `bash`, `git`, `wget`, `xz`, `jq`, `make` (and `docker` for `test-docker`).
+`make` downloads pinned `shellcheck`, `helm`, `helmfile` and bats into `.tools/`.
+Override tool versions with e.g. `make test HELM_VERSION=v3.19.4`.
+
+Tests for known bugs are marked with `skip "known bug: ..."`. Remove the skip
+together with the fix.
+
+### Contributing
 ```declarative
 # Create fork.
 # Add the original repository as a new remote called "upstream" (only once, if not done before)

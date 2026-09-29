@@ -6,6 +6,42 @@ The format is based on Keep a Changelog (https://keepachangelog.com/en/1.1.0/)
 and this project adheres to Semantic Versioning (https://semver.org/).
 ---
 
+## [1.6.0] - 2026-09-29
+### Removed
+- Dead code: `if [[ true ]]` wrappers, duplicate `PATH` expansion, unused `print_env_vars`, unused `/tmp/__<script>__/bin` directory, unreachable block after `exit 0` in `parameters`, commented-out `find` blocks.
+- Remaining Helm 2 code: `helm init --client-only`, Helm 2 `--kube-version` handling and comments.
+- `HELMFILE_HELM3` export (no-op since helmfile v1).
+
+### Changed
+- Helm version is detected with `helm version --template '{{.Version}}'` instead of parsing `--short` output.
+- `init` and `generate` fail with a clear error for Helm < 3.19, helmfile < 1 or unparsable versions.
+- `discover` and `parameters` no longer run `helm`/`helmfile`.
+- Minimum versions: helm >= 3.19, helmfile >= 1 (>= 1.2 with Helm 4).
+- Script runs with `set -Eeuo pipefail` and reports the failing phase and line on errors.
+- `discover` writes "no match" and "forced response: disabled" messages to stderr; stdout is only used for a match.
+- `discover` detects a custom helmfile path by matching `-f` and `--file` as whole options in `HELMFILE_GLOBAL_OPTIONS` (`-f x`, `--file x`, `-f=x`, `--file=x`), instead of searching the whole value for the text `-f`, which also matched unrelated options such as `-e prod-frankfurt`.
+- Options in `HELMFILE_GLOBAL_OPTIONS` / `HELMFILE_TEMPLATE_OPTIONS` are split into words without glob expansion; multi-line values are supported.
+- `ARGOCD_ENV_*` / `PARAM_*` with names that are not valid shell variables are skipped with a warning instead of failing.
+- Missing `helm` / `helmfile` binaries fail with a clear message.
+- `KUBE_VERSION` is passed with helmfile's `--kube-version` flag; `KUBE_API_VERSIONS` as one comma-separated `--api-versions`. `--args` is only passed when needed.
+
+### Deprecated
+- `HELM_HOME`: use `PLUGIN_APP_HOME`. `HELM_HOME` is still accepted with a warning and is exported with the same value.
+
+### Fixed
+- `truthy_test` evaluated values as arithmetic expressions, which could run command substitutions from parameter values; it now compares strings only (`true`, `1`, `yes`, any case).
+- Non-numeric `HELMFILE_REPO_CACHE_TIMEOUT` no longer causes errors; it disables the cache.
+- Helm 4: `KUBE_VERSION` and `KUBE_API_VERSIONS` were ignored, so charts rendered with Helm's default capabilities instead of the destination cluster's.
+- `KUBE_VERSION` with vendor suffixes was corrupted (`1.29.0+k3s1` became `1.29.031`); it is now normalized, invalid values are ignored with a warning.
+- `HELMFILE_HELMFILE_STRATEGY=INCLUDE` aborted `init` silently when any helmfile source existed (`((count++))` under `set -e`).
+
+### Added
+- `PLUGIN_APP_HOME` environment variable.
+- bats test suite (`test/`) covering the `discover`, `parameters`, `init` and `generate` phases, environment handling and Kubernetes capabilities.
+- Docker image smoke test (`test/docker-smoke.sh`).
+- `Makefile` with `tools`, `lint`, `test` and `test-docker` targets.
+- GitHub Actions workflow `Test` running shellcheck, bats and the Docker smoke test on pushes to `main` and pull requests.
+
 ## [1.4.0] - 2026-05-27
 ### Fixed 
  - Fixed plugin installation and compatibility issues for Helm v4, ensuring proper support for CLI plugins including helm-secrets as described in the updated installation guide: https://github.com/jkroepke/helm-secrets/wiki/Installation
