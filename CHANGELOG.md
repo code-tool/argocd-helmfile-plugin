@@ -6,7 +6,7 @@ The format is based on Keep a Changelog (https://keepachangelog.com/en/1.1.0/)
 and this project adheres to Semantic Versioning (https://semver.org/).
 ---
 
-## [1.4.0]
+## [1.5.0] - 2026-09-29
 ### Removed
 - Dead code: `if [[ true ]]` wrappers, duplicate `PATH` expansion, unused `print_env_vars`, unused `/tmp/__<script>__/bin` directory, unreachable block after `exit 0` in `parameters`, commented-out `find` blocks.
 - Remaining Helm 2 code: `helm init --client-only`, Helm 2 `--kube-version` handling and comments.
@@ -42,7 +42,7 @@ and this project adheres to Semantic Versioning (https://semver.org/).
 - `Makefile` with `tools`, `lint`, `test` and `test-docker` targets.
 - GitHub Actions workflow `Test` running shellcheck, bats and the Docker smoke test on pushes to `main` and pull requests.
 
-## [1.3.1] - 2026-05-27
+## [1.4.0] - 2026-05-27
 ### Fixed 
  - Fixed plugin installation and compatibility issues for Helm v4, ensuring proper support for CLI plugins including helm-secrets as described in the updated installation guide: https://github.com/jkroepke/helm-secrets/wiki/Installation
 
